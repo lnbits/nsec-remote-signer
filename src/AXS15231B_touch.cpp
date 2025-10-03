@@ -9,18 +9,33 @@ AXS15231B_Touch* AXS15231B_Touch::instance = nullptr;
 bool AXS15231B_Touch::begin() {
     instance = this;
 
-    Serial.printf("Touch begin() - SDA:%d, SCL:%d, INT:%d, ADDR:0x%02X\n", sda, scl, int_pin, addr);
-    
-    // Attach interrupt. Interrupt -> display touched
-    attachInterrupt(digitalPinToInterrupt(int_pin), isrTouched, FALLING);
+    Serial.printf("Touch begin() - SDA:%d, SCL:%d, INT:%d, ADDR:0x%02X\n",
+                  sda, scl, int_pin, addr);
+
+    // Configure INT pin and attach interrupt
+    pinMode(int_pin, INPUT_PULLUP);                   // INT is usually active-low, open-drain
+    detachInterrupt(digitalPinToInterrupt(int_pin));  // just in case
+    attachInterrupt(digitalPinToInterrupt(int_pin), isrTouched, CHANGE);
     Serial.printf("Touch interrupt attached to pin %d\n", int_pin);
 
     // Start I2C
     bool i2c_result = Wire.begin(sda, scl);
+    Wire.setClock(400000);  // fast mode
     Serial.printf("I2C begin result: %s\n", i2c_result ? "SUCCESS" : "FAILED");
-    
+
+    // Quick I2C scan to confirm device presence/address
+    Serial.println("I2C scan:");
+    for (uint8_t a = 0x08; a < 0x7F; a++) {
+        Wire.beginTransmission(a);
+        if (Wire.endTransmission() == 0) {
+            Serial.printf("  - found device at 0x%02X\n", a);
+        }
+    }
+
     return i2c_result;
 }
+
+
 
 ISR_PREFIX
 void AXS15231B_Touch::isrTouched() {
@@ -69,42 +84,53 @@ void AXS15231B_Touch::correctOffset(uint16_t *x, uint16_t *y) {
 }
 
 bool AXS15231B_Touch::update() {
-    // Check if interrupt occured, if there was an interrupt get data from touch controller and clear flag
-    if (!touch_int) {
-        return false;
-    } else {
+    // Read when either: an INT arrived, or our 20ms poll timer fires
+    static uint32_t last_poll = 0;
+    const uint32_t now = millis();
+    bool should_read = false;
+
+    if (touch_int) {                // interrupt-driven
         touch_int = false;
+        should_read = true;
     }
+    if ((now - last_poll) >= 20) {  // polling fallback
+        last_poll = now;
+        should_read = true;
+    }
+    if (!should_read) return false;
 
+    // --- I2C transaction ---
     uint8_t tmp_buf[8] = {0};
-    // Command to read data from controller
-    // This commands configures the controller to read only the position of the first finger
-    static const uint8_t read_touchpad_cmd[8] = {0xB5, 0xAB, 0xA5, 0x5A, 0x00, 0x00, 0x00, 0x08};
+    static const uint8_t read_touchpad_cmd[8] =
+        {0xB5, 0xAB, 0xA5, 0x5A, 0x00, 0x00, 0x00, 0x08};
 
-    // Send command to controller
     Wire.beginTransmission(addr);
     Wire.write(read_touchpad_cmd, sizeof(read_touchpad_cmd));
-    Wire.endTransmission();
+    // use a repeated start to be friendly to some controllers
+    if (Wire.endTransmission(false) != 0) {
+        return false;
+    }
 
-    // Read response from controller
-    Wire.requestFrom(addr, sizeof(tmp_buf));
-    for(int i = 0; i < sizeof(tmp_buf) && Wire.available(); i++) {
+    int got = Wire.requestFrom((int)addr, (int)sizeof(tmp_buf));
+    if (got != (int)sizeof(tmp_buf)) {
+        // bus glitch or no device
+        return false;
+    }
+    for (int i = 0; i < (int)sizeof(tmp_buf); i++) {
         tmp_buf[i] = Wire.read();
     }
 
-    // Extract X and Y coordinates from response
+    // --- Parse coordinates ---
     uint16_t raw_X = AXS_GET_POINT_X(tmp_buf);
     uint16_t raw_Y = AXS_GET_POINT_Y(tmp_buf);
 
-    // Validate data
-    if (point_X || point_Y) {
-        if (raw_X > x_real_max) raw_X = x_real_max;
-        if (raw_X < x_real_min) raw_X = x_real_min;
-        if (raw_Y > y_real_max) raw_Y = y_real_max;
-        if (raw_Y < y_real_min) raw_Y = y_real_min;
-    }
+    // Clamp to valid ranges
+    if (raw_X > x_real_max) raw_X = x_real_max;
+    if (raw_X < x_real_min) raw_X = x_real_min;
+    if (raw_Y > y_real_max) raw_Y = y_real_max;
+    if (raw_Y < y_real_min) raw_Y = y_real_min;
 
-    // Correct offset if enabled
+    // Optional offset correction
     uint16_t x_max, y_max;
     if (en_offset_correction) {
         correctOffset(&raw_X, &raw_Y);
@@ -115,7 +141,7 @@ bool AXS15231B_Touch::update() {
         y_max = y_real_max;
     }
 
-    // Align X and Y according to rotation
+    // Rotate mapping
     switch (rotation) {
         case 0:
             point_X = raw_X;
@@ -136,6 +162,9 @@ bool AXS15231B_Touch::update() {
         default:
             break;
     }
+
+    // Debug (comment out once verified)
+    // Serial.printf("TOUCH x=%u y=%u (raw %u,%u)\n", point_X, point_Y, raw_X, raw_Y);
 
     return true;
 }

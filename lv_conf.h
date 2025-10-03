@@ -1,19 +1,16 @@
 #ifndef LV_CONF_H
 #define LV_CONF_H
 
-/* Make LVGL find this file via simple include paths. 
-   Guard to avoid the "redefined" warnings you saw. */
-#ifndef LV_CONF_INCLUDE_SIMPLE
-#define LV_CONF_INCLUDE_SIMPLE
-#endif
-
 /* ==== CORE ==== */
 #define LV_COLOR_DEPTH 16
 #define LV_COLOR_16_SWAP 0
 
-/* Set your panel resolution (adjust if different) */
+/* Panel resolution (adjust if different) */
 #define LV_HOR_RES_MAX 480
 #define LV_VER_RES_MAX 320
+
+/* ==== INPUT / INDEV ==== */
+#define LV_USE_INDEV 1   /* ensure input devices (touch) are compiled */
 
 /* ==== FEATURES YOU USE ==== */
 /* QR code widget (provides lv_qrcode_create/update) */
@@ -24,7 +21,7 @@
 #define LV_FONT_MONTSERRAT_16 1
 #define LV_FONT_MONTSERRAT_24 1
 
-/* Optional: pick a default font (one you enabled above) */
+/* Default font */
 #define LV_FONT_DEFAULT &lv_font_montserrat_16
 
 /* ==== NICE-TO-HAVES (optional) ==== */
