@@ -165,6 +165,11 @@ namespace RemoteSigner {
             return;
         }
         
+        if (!WiFiManager::isConnected()) {
+            Serial.println("RemoteSigner::connectToRelay() - Cannot connect: WiFi not connected");
+            return;
+        }
+        
         if (connection_in_progress) {
             Serial.println("RemoteSigner::connectToRelay() - Connection already in progress");
             return;
@@ -680,19 +685,24 @@ namespace RemoteSigner {
             return;
         }
         
-        // Update time
-        timeClient.update();
-        unixTimestamp = timeClient.getEpochTime();
-        
-        // Process WebSocket events
-        webSocket.loop();
-        
-        // Send periodic ping
-        unsigned long now = millis();
-        if (now - last_ws_ping > Config::WS_PING_INTERVAL) {
-            sendPing();
-            last_ws_ping = now;
+        // Only update time and process WebSocket if WiFi is connected
+        if (WiFiManager::isConnected()) {
+            // Update time
+            timeClient.update();
+            unixTimestamp = timeClient.getEpochTime();
+            
+            // Process WebSocket events
+            webSocket.loop();
+            
+            // Send periodic ping
+            unsigned long now = millis();
+            if (now - last_ws_ping > Config::WS_PING_INTERVAL) {
+                sendPing();
+                last_ws_ping = now;
+            }
         }
+        
+        unsigned long now = millis();
         
         // Periodic status updates every 5 seconds
         static unsigned long last_status_update = 0;
@@ -701,49 +711,52 @@ namespace RemoteSigner {
             last_status_update = now;
         }
         
-        // Debug: Log connection health every 30 seconds
-        static unsigned long last_debug_log = 0;
-        if (now - last_debug_log > 30000) {
-            if (isConnected()) {
-                Serial.println("RemoteSigner::processLoop() - Connection healthy. Last message: " + String((now - last_ws_message_received) / 1000) + "s ago");
-            } else {
-                Serial.println("RemoteSigner::processLoop() - Not connected. Manual reconnect needed: " + String(manual_reconnect_needed ? "Yes" : "No"));
-            }
-            last_debug_log = now;
-        }
-        
-        // Check connection health
-        if (isConnected() && (now - last_ws_message_received > Config::CONNECTION_TIMEOUT)) {
-            Serial.println("RemoteSigner::processLoop() - Connection timeout detected");
-            Serial.println("Last message received: " + String((now - last_ws_message_received) / 1000) + "s ago");
-            disconnect();
-            manual_reconnect_needed = true;
-        }
-        
-        // Handle manual reconnection with exponential backoff
-        if (manual_reconnect_needed && !connection_in_progress && !isConnected()) {
-            unsigned long backoff_delay = Config::MIN_RECONNECT_INTERVAL * (1 << min(reconnection_attempts, 5)); // Cap at 32x base interval
-            
-            if (now - last_reconnect_attempt >= backoff_delay) {
-                if (reconnection_attempts < Config::MAX_RECONNECT_ATTEMPTS) {
-                    Serial.println("RemoteSigner::processLoop() - Attempting manual reconnection #" + String(reconnection_attempts + 1));
-                    Serial.println("Backoff delay was: " + String(backoff_delay) + "ms");
-                    
-                    connectToRelay();
-                    last_reconnect_attempt = now;
-                    reconnection_attempts++;
+        // Only do connection-related checks if WiFi is connected
+        if (WiFiManager::isConnected()) {
+            // Debug: Log connection health every 30 seconds
+            static unsigned long last_debug_log = 0;
+            if (now - last_debug_log > 30000) {
+                if (isConnected()) {
+                    Serial.println("RemoteSigner::processLoop() - Connection healthy. Last message: " + String((now - last_ws_message_received) / 1000) + "s ago");
                 } else {
-                    Serial.println("RemoteSigner::processLoop() - Max reconnection attempts reached, giving up");
-                    // reboot the device
-                    ESP.restart();
-                    manual_reconnect_needed = false;
-                    reconnection_attempts = 0;
-                    
-                    // Update status display immediately
-                    displayConnectionStatus(false);
-                    
-                    if (status_callback) {
-                        status_callback(false, "Connection failed permanently");
+                    Serial.println("RemoteSigner::processLoop() - Not connected. Manual reconnect needed: " + String(manual_reconnect_needed ? "Yes" : "No"));
+                }
+                last_debug_log = now;
+            }
+            
+            // Check connection health
+            if (isConnected() && (now - last_ws_message_received > Config::CONNECTION_TIMEOUT)) {
+                Serial.println("RemoteSigner::processLoop() - Connection timeout detected");
+                Serial.println("Last message received: " + String((now - last_ws_message_received) / 1000) + "s ago");
+                disconnect();
+                manual_reconnect_needed = true;
+            }
+            
+            // Handle manual reconnection with exponential backoff
+            if (manual_reconnect_needed && !connection_in_progress && !isConnected()) {
+                unsigned long backoff_delay = Config::MIN_RECONNECT_INTERVAL * (1 << min(reconnection_attempts, 5)); // Cap at 32x base interval
+                
+                if (now - last_reconnect_attempt >= backoff_delay) {
+                    if (reconnection_attempts < Config::MAX_RECONNECT_ATTEMPTS) {
+                        Serial.println("RemoteSigner::processLoop() - Attempting manual reconnection #" + String(reconnection_attempts + 1));
+                        Serial.println("Backoff delay was: " + String(backoff_delay) + "ms");
+                        
+                        connectToRelay();
+                        last_reconnect_attempt = now;
+                        reconnection_attempts++;
+                    } else {
+                        Serial.println("RemoteSigner::processLoop() - Max reconnection attempts reached, giving up");
+                        // reboot the device
+                        ESP.restart();
+                        manual_reconnect_needed = false;
+                        reconnection_attempts = 0;
+                        
+                        // Update status display immediately
+                        displayConnectionStatus(false);
+                        
+                        if (status_callback) {
+                            status_callback(false, "Connection failed permanently");
+                        }
                     }
                 }
             }
