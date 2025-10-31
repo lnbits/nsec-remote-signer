@@ -35,10 +35,10 @@ namespace RemoteSigner {
     
     // NIP-46 protocol handlers
     void handleSigningRequestEvent(uint8_t* data);
-    void handleConnect(DynamicJsonDocument& doc, const String& requestingPubKey);
-    void handleSignEvent(DynamicJsonDocument& doc, const char* requestingPubKey);
-    void handlePing(DynamicJsonDocument& doc, const char* requestingPubKey);
-    void handleGetPublicKey(DynamicJsonDocument& doc, const char* requestingPubKey);
+    void handleConnect(DynamicJsonDocument& doc, const String& requestingPubKey, bool useNip44Encryption);
+    void handleSignEvent(DynamicJsonDocument& doc, const char* requestingPubKey, bool useNip44Encryption);
+    void handlePing(DynamicJsonDocument& doc, const char* requestingPubKey, bool useNip44Encryption);
+    void handleGetPublicKey(DynamicJsonDocument& doc, const char* requestingPubKey, bool useNip44Encryption);
     void handleNip04Encrypt(DynamicJsonDocument& doc, const char* requestingPubKey);
     void handleNip04Decrypt(DynamicJsonDocument& doc, const char* requestingPubKey);
     void handleNip44Encrypt(DynamicJsonDocument& doc, const char* requestingPubKey);

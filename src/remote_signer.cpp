@@ -317,9 +317,11 @@ namespace RemoteSigner {
         
         // Determine encryption type (NIP-04 vs NIP-44) and decrypt
         String decryptedMessage = "";
+        boolean isUsingNip44 = true;
         if (dataStr.indexOf("?iv=") != -1) {
             Serial.println("RemoteSigner::handleSigningRequestEvent() - Using NIP-04 decryption");
             decryptedMessage = nostr::nip04Decrypt(privateKeyHex.c_str(), dataStr);
+            isUsingNip44 = false;
         } else {
             Serial.println("RemoteSigner::handleSigningRequestEvent() - Using NIP-44 decryption");
             decryptedMessage = nostr::nip44Decrypt(privateKeyHex.c_str(), dataStr);
@@ -344,14 +346,14 @@ namespace RemoteSigner {
         
         if (method == Methods::CONNECT) {
             Display::turnOnBacklightForSigning();
-            handleConnect(eventDoc, requestingPubKey);
+            handleConnect(eventDoc, requestingPubKey, isUsingNip44);
         } else if (method == Methods::SIGN_EVENT) {
             Display::turnOnBacklightForSigning();
-            handleSignEvent(eventDoc, requestingPubKey.c_str());
+            handleSignEvent(eventDoc, requestingPubKey.c_str(), isUsingNip44);
         } else if (method == Methods::PING) {
-            handlePing(eventDoc, requestingPubKey.c_str());
+            handlePing(eventDoc, requestingPubKey.c_str(), isUsingNip44);
         } else if (method == Methods::GET_PUBLIC_KEY) {
-            handleGetPublicKey(eventDoc, requestingPubKey.c_str());
+            handleGetPublicKey(eventDoc, requestingPubKey.c_str(), isUsingNip44);
         } else if (method == Methods::NIP04_ENCRYPT) {
             Display::turnOnBacklightForSigning();
             handleNip04Encrypt(eventDoc, requestingPubKey.c_str());
@@ -369,7 +371,7 @@ namespace RemoteSigner {
         }
     }
     
-    void handleConnect(DynamicJsonDocument& doc, const String& requestingPubKey) {
+    void handleConnect(DynamicJsonDocument& doc, const String& requestingPubKey, bool useNip44Encryption) {
         String requestId = doc["id"];
         String secret = doc["params"][1];
         
@@ -395,14 +397,14 @@ namespace RemoteSigner {
             24133, 
             unixTimestamp, 
             responseMsg, 
-            "nip44"
+            useNip44Encryption ? "nip44" : "nip04"
         );
         
         webSocket.sendTXT(encryptedResponse);
         Serial.println("RemoteSigner::handleConnect() - Response sent");
     }
-    
-    void handleSignEvent(DynamicJsonDocument& doc, const char* requestingPubKey) {
+
+    void handleSignEvent(DynamicJsonDocument& doc, const char* requestingPubKey, bool useNip44Encryption) {
         String requestId = doc["id"];
         
         Serial.println("RemoteSigner::handleSignEvent() - Sign event request from: " + String(requestingPubKey));
@@ -466,7 +468,7 @@ namespace RemoteSigner {
             24133,
             unixTimestamp,
             responseMsg,
-            "nip44"
+            useNip44Encryption ? "nip44" : "nip04"
         );
         
         webSocket.sendTXT(encryptedResponse);
@@ -483,8 +485,8 @@ namespace RemoteSigner {
             signing_callback(true);
         }
     }
-    
-    void handlePing(DynamicJsonDocument& doc, const char* requestingPubKey) {
+
+    void handlePing(DynamicJsonDocument& doc, const char* requestingPubKey, bool useNip44Encryption) {
         String requestId = doc["id"];
         
         if (!isClientAuthorized(requestingPubKey)) {
@@ -500,14 +502,14 @@ namespace RemoteSigner {
             24133,
             unixTimestamp,
             responseMsg,
-            "nip44"
+            useNip44Encryption ? "nip44" : "nip04"
         );
         
         webSocket.sendTXT(encryptedResponse);
         Serial.println("RemoteSigner::handlePing() - Pong sent to: " + String(requestingPubKey));
     }
-    
-    void handleGetPublicKey(DynamicJsonDocument& doc, const char* requestingPubKey) {
+
+    void handleGetPublicKey(DynamicJsonDocument& doc, const char* requestingPubKey, bool useNip44Encryption) {
         String requestId = doc["id"];
         
         if (!isClientAuthorized(requestingPubKey)) {
@@ -523,7 +525,7 @@ namespace RemoteSigner {
             24133,
             unixTimestamp,
             responseMsg,
-            "nip44"
+            useNip44Encryption ? "nip44" : "nip04"
         );
         
         webSocket.sendTXT(encryptedResponse);
