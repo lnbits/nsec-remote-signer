@@ -31,10 +31,24 @@ namespace RemoteSigner {
     
     // Configuration
     static String relayUrl = "";
-    static String privateKeyHex = "";
-    static String publicKeyHex = "";
+    
+    // User's keypair (for signing actual events)
+    static String userPrivateKeyHex = "";
+    static String userPublicKeyHex = "";
+    
+    // Device/Signer keypair (for NIP-46 communication, generated once and immutable)
+    static String devicePrivateKeyHex = "";
+    static String devicePublicKeyHex = "";
+    
     static String secretKey = "";
     static String authorizedClients = "";
+    
+    // Client management constants
+    static const int MAX_AUTHORIZED_CLIENTS = 30;  // Limit to prevent NVS overflow
+    
+    // Forward declarations for helper functions
+    void generateDeviceKeypair();
+    void saveDeviceKeypairToPreferences();
     
     // Connection state
     static bool signer_initialized = false;
@@ -102,20 +116,52 @@ namespace RemoteSigner {
         prefs.begin("signer", true); // Read-only
         
         relayUrl = prefs.getString("relay_url", "wss://relay.nostriot.com");
-        privateKeyHex = prefs.getString("private_key", "");
-        // derive public key from private key
-        if (privateKeyHex.length() == 64) {
+        
+        // Load user's keypair (migrate from old "private_key" if needed)
+        userPrivateKeyHex = prefs.getString("user_private_key", "");
+        if (userPrivateKeyHex.length() == 0) {
+            // Migration: check for old "private_key" preference
+            userPrivateKeyHex = prefs.getString("private_key", "");
+        }
+        
+        if (userPrivateKeyHex.length() == 64) {
             try {
                 int byteSize = 32;
                 byte privateKeyBytes[byteSize];
-                fromHex(privateKeyHex, privateKeyBytes, byteSize);
+                fromHex(userPrivateKeyHex, privateKeyBytes, byteSize);
                 PrivateKey privKey(privateKeyBytes);
                 PublicKey pub = privKey.publicKey();
-                publicKeyHex = pub.toString();
+                userPublicKeyHex = pub.toString();
                 // remove leading 2 bytes from public key
-                publicKeyHex = publicKeyHex.substring(2);
+                userPublicKeyHex = userPublicKeyHex.substring(2);
             } catch (...) {
-                Serial.println("RemoteSigner: ERROR - Failed to derive public key");
+                Serial.println("RemoteSigner: ERROR - Failed to derive user public key");
+            }
+        }
+        
+        // Load or generate device keypair (immutable once created)
+        devicePrivateKeyHex = prefs.getString("device_private_key", "");
+        if (devicePrivateKeyHex.length() != 64) {
+            prefs.end();
+            // Generate device keypair on first use
+            generateDeviceKeypair();
+            saveDeviceKeypairToPreferences();
+            Serial.println("RemoteSigner: Generated new device keypair (first use)");
+            prefs.begin("signer", true); // Re-open as read-only
+        } else {
+            // Derive device public key from stored private key
+            try {
+                int byteSize = 32;
+                byte privateKeyBytes[byteSize];
+                fromHex(devicePrivateKeyHex, privateKeyBytes, byteSize);
+                PrivateKey privKey(privateKeyBytes);
+                PublicKey pub = privKey.publicKey();
+                devicePublicKeyHex = pub.toString();
+                // remove leading 2 bytes from public key
+                devicePublicKeyHex = devicePublicKeyHex.substring(2);
+                Serial.println("RemoteSigner: Loaded existing device keypair");
+            } catch (...) {
+                Serial.println("RemoteSigner: ERROR - Failed to derive device public key");
             }
         }
         
@@ -125,21 +171,15 @@ namespace RemoteSigner {
         
         Serial.println("RemoteSigner::loadConfigFromPreferences() - Configuration loaded");
         Serial.println("Relay URL: " + relayUrl);
-        Serial.println("Has private key: " + String(privateKeyHex.length() > 0 ? "Yes" : "No"));
+        Serial.println("Has user private key: " + String(userPrivateKeyHex.length() > 0 ? "Yes" : "No"));
+        Serial.println("Device public key: " + devicePublicKeyHex);
     }
     
     void saveConfigToPreferences() {
-        Preferences prefs;
-        prefs.begin("signer", false); // Read-write
-        
-        prefs.putString("relay_url", relayUrl);
-        prefs.putString("private_key", privateKeyHex);
-        prefs.putString("public_key", publicKeyHex);
-        prefs.putString("auth_clients", authorizedClients);
-        
-        prefs.end();
-        
-        Serial.println("RemoteSigner::saveConfigToPreferences() - Configuration saved");
+        if (!trySaveConfigToPreferences()) {
+            Serial.println("RemoteSigner::saveConfigToPreferences() - Save failed, this is a critical error");
+            // Don't crash the device, but log the error
+        }
     }
     
     void refreshSecretKey() {
@@ -152,11 +192,11 @@ namespace RemoteSigner {
     }
     
     String getBunkerUrl() {
-        if (publicKeyHex.length() == 0 || relayUrl.length() == 0) {
+        if (devicePublicKeyHex.length() == 0 || relayUrl.length() == 0) {
             return "";
         }
         
-        return "bunker://" + publicKeyHex + "?relay=" + relayUrl + "&secret=" + secretKey;
+        return "bunker://" + devicePublicKeyHex + "?relay=" + relayUrl + "&secret=" + secretKey;
     }
     
     void connectToRelay() {
@@ -248,9 +288,9 @@ namespace RemoteSigner {
                 // Update status display immediately
                 displayConnectionStatus(true);
                 
-                // Subscribe to NIP-46 events for our public key
-                if (publicKeyHex.length() > 0) {
-                    String subscription = "[\"REQ\", \"signer\", {\"kinds\":[24133], \"#p\":[\"" + publicKeyHex + "\"], \"limit\":0}]";
+                // Subscribe to NIP-46 events for our device public key
+                if (devicePublicKeyHex.length() > 0) {
+                    String subscription = "[\"REQ\", \"signer\", {\"kinds\":[24133], \"#p\":[\"" + devicePublicKeyHex + "\"], \"limit\":0}]";
                     webSocket.sendTXT(subscription);
                     Serial.println("RemoteSigner::websocketEvent() - Sent subscription: " + subscription);
                 }
@@ -315,14 +355,14 @@ namespace RemoteSigner {
         String requestingPubKey = nostr::getSenderPubKeyHex(dataStr);
         Serial.println("RemoteSigner::handleSigningRequestEvent() - Requesting pubkey: " + requestingPubKey);
         
-        // Determine encryption type (NIP-04 vs NIP-44) and decrypt
+        // Determine encryption type (NIP-04 vs NIP-44) and decrypt using device keypair
         String decryptedMessage = "";
         if (dataStr.indexOf("?iv=") != -1) {
             Serial.println("RemoteSigner::handleSigningRequestEvent() - Using NIP-04 decryption");
-            decryptedMessage = nostr::nip04Decrypt(privateKeyHex.c_str(), dataStr);
+            decryptedMessage = nostr::nip04Decrypt(devicePrivateKeyHex.c_str(), dataStr);
         } else {
             Serial.println("RemoteSigner::handleSigningRequestEvent() - Using NIP-44 decryption");
-            decryptedMessage = nostr::nip44Decrypt(privateKeyHex.c_str(), dataStr);
+            decryptedMessage = nostr::nip44Decrypt(devicePrivateKeyHex.c_str(), dataStr);
         }
         
         if (decryptedMessage.length() == 0) {
@@ -387,10 +427,10 @@ namespace RemoteSigner {
 
         Serial.println("RemoteSigner::handleConnect() - Sending connect response: " + responseMsg);
         
-        // Encrypt and send response using NIP-44
+        // Encrypt and send response using device keypair for NIP-46 communication
         String encryptedResponse = nostr::getEncryptedDm(
-            privateKeyHex.c_str(), 
-            publicKeyHex.c_str(), 
+            devicePrivateKeyHex.c_str(), 
+            devicePublicKeyHex.c_str(), 
             requestingPubKey.c_str(), 
             24133, 
             unixTimestamp, 
@@ -437,11 +477,10 @@ namespace RemoteSigner {
         // Show signing modal
         // UI::showSigningModal();
         
-        // For now, auto-approve (TODO: Add UI confirmation)
-        // Sign the event using nostr library
+        // Sign the event using user's keypair (not device keypair)
         String signedEvent = nostr::getNote(
-            privateKeyHex.c_str(),
-            publicKeyHex.c_str(),
+            userPrivateKeyHex.c_str(),
+            userPublicKeyHex.c_str(),
             timestamp,
             content,
             kind,
@@ -458,10 +497,10 @@ namespace RemoteSigner {
         // Update modal to show broadcasting status
         // UI::updateSigningModalText("Broadcasting");
         
-        // Encrypt and send response
+        // Encrypt and send response using device keypair for NIP-46 communication
         String encryptedResponse = nostr::getEncryptedDm(
-            privateKeyHex.c_str(),
-            publicKeyHex.c_str(),
+            devicePrivateKeyHex.c_str(),
+            devicePublicKeyHex.c_str(),
             requestingPubKey,
             24133,
             unixTimestamp,
@@ -494,8 +533,8 @@ namespace RemoteSigner {
         String responseMsg = "{\"id\":\"" + requestId + "\",\"result\":\"pong\"}";
         
         String encryptedResponse = nostr::getEncryptedDm(
-            privateKeyHex.c_str(),
-            publicKeyHex.c_str(),
+            devicePrivateKeyHex.c_str(),
+            devicePublicKeyHex.c_str(),
             requestingPubKey,
             24133,
             unixTimestamp,
@@ -514,11 +553,11 @@ namespace RemoteSigner {
             return;
         }
         
-        String responseMsg = "{\"id\":\"" + requestId + "\",\"result\":\"" + publicKeyHex + "\"}";
+        String responseMsg = "{\"id\":\"" + requestId + "\",\"result\":\"" + userPublicKeyHex + "\"}";
         
         String encryptedResponse = nostr::getEncryptedDm(
-            privateKeyHex.c_str(),
-            publicKeyHex.c_str(),
+            devicePrivateKeyHex.c_str(),
+            devicePublicKeyHex.c_str(),
             requestingPubKey,
             24133,
             unixTimestamp,
@@ -539,12 +578,12 @@ namespace RemoteSigner {
         String thirdPartyPubKey = doc["params"][0];
         String plaintext = doc["params"][1];
         
-        String encryptedMessage = nostr::getCipherText(privateKeyHex.c_str(), thirdPartyPubKey.c_str(), plaintext);
+        String encryptedMessage = nostr::getCipherText(userPrivateKeyHex.c_str(), thirdPartyPubKey.c_str(), plaintext);
         String responseMsg = "{\"id\":\"" + requestId + "\",\"result\":\"" + encryptedMessage + "\"}";
         
         String encryptedResponse = nostr::getEncryptedDm(
-            privateKeyHex.c_str(),
-            publicKeyHex.c_str(),
+            devicePrivateKeyHex.c_str(),
+            devicePublicKeyHex.c_str(),
             requestingPubKey,
             24133,
             unixTimestamp,
@@ -565,12 +604,12 @@ namespace RemoteSigner {
         String thirdPartyPubKey = doc["params"][0];
         String cipherText = doc["params"][1];
         
-        String decryptedMessage = nostr::decryptNip04Ciphertext(cipherText, privateKeyHex, thirdPartyPubKey);
+        String decryptedMessage = nostr::decryptNip04Ciphertext(cipherText, userPrivateKeyHex, thirdPartyPubKey);
         String responseMsg = "{\"id\":\"" + requestId + "\",\"result\":\"" + decryptedMessage + "\"}";
         
         String encryptedResponse = nostr::getEncryptedDm(
-            privateKeyHex.c_str(),
-            publicKeyHex.c_str(),
+            devicePrivateKeyHex.c_str(),
+            devicePublicKeyHex.c_str(),
             requestingPubKey,
             24133,
             unixTimestamp,
@@ -592,12 +631,12 @@ namespace RemoteSigner {
         String plaintext = doc["params"][1];
         
         // Use NIP-44 encryption functions
-        String encryptedMessage = executeEncryptMessageNip44(plaintext, privateKeyHex, thirdPartyPubKey);
+        String encryptedMessage = executeEncryptMessageNip44(plaintext, userPrivateKeyHex, thirdPartyPubKey);
         String responseMsg = "{\"id\":\"" + requestId + "\",\"result\":\"" + encryptedMessage + "\"}";
         
         String encryptedResponse = nostr::getEncryptedDm(
-            privateKeyHex.c_str(),
-            publicKeyHex.c_str(),
+            devicePrivateKeyHex.c_str(),
+            devicePublicKeyHex.c_str(),
             requestingPubKey,
             24133,
             unixTimestamp,
@@ -619,12 +658,12 @@ namespace RemoteSigner {
         String cipherText = doc["params"][1];
         
         // Use NIP-44 decryption functions
-        String decryptedMessage = executeDecryptMessageNip44(cipherText, privateKeyHex, thirdPartyPubKey);
+        String decryptedMessage = executeDecryptMessageNip44(cipherText, userPrivateKeyHex, thirdPartyPubKey);
         String responseMsg = "{\"id\":\"" + requestId + "\",\"result\":\"" + decryptedMessage + "\"}";
         
         String encryptedResponse = nostr::getEncryptedDm(
-            privateKeyHex.c_str(),
-            publicKeyHex.c_str(),
+            devicePrivateKeyHex.c_str(),
+            devicePublicKeyHex.c_str(),
             requestingPubKey,
             24133,
             unixTimestamp,
@@ -663,21 +702,102 @@ namespace RemoteSigner {
     bool promptUserForAuthorization(const String& requestingNpub) {
         Serial.println("RemoteSigner::promptUserForAuthorization() - Prompting user for: " + requestingNpub);
         
-        // TODO: Implement UI prompt for user authorization
-        // For now, automatically authorize (should be replaced with actual UI)
-        addAuthorizedClient(requestingNpub.c_str());
-        return true;
+        // For now, reject all clients that dont have the correct secret
+        // TODO: Implement UI prompt for user approval
+        return false;
     }
     
     void addAuthorizedClient(const char* clientPubKey) {
         if (authorizedClients.indexOf(clientPubKey) == -1) {
+            // Check if we need to make space
+            int currentCount = getAuthorizedClientCount();
+            
+            if (currentCount >= MAX_AUTHORIZED_CLIENTS) {
+                // Remove oldest client (LRU - first one in the list)
+                removeOldestClient();
+                Serial.println("RemoteSigner::addAuthorizedClient() - Removed oldest client to make space");
+            }
+            
             if (authorizedClients.length() > 0) {
                 authorizedClients += "|";
             }
             authorizedClients += clientPubKey;
-            saveConfigToPreferences();
+            
             Serial.println("RemoteSigner::addAuthorizedClient() - Client authorized: " + String(clientPubKey));
+            Serial.println("Total authorized clients: " + String(getAuthorizedClientCount()));
         }
+    }
+    
+    int getAuthorizedClientCount() {
+        if (authorizedClients.length() == 0) return 0;
+        
+        int count = 1;
+        for (int i = 0; i < authorizedClients.length(); i++) {
+            if (authorizedClients.charAt(i) == '|') {
+                count++;
+            }
+        }
+        return count;
+    }
+    
+    void removeOldestClient() {
+        if (authorizedClients.length() == 0) return;
+        
+        int firstSeparator = authorizedClients.indexOf('|');
+        if (firstSeparator == -1) {
+            // Only one client, remove it entirely
+            authorizedClients = "";
+        } else {
+            // Remove first client and its separator
+            authorizedClients = authorizedClients.substring(firstSeparator + 1);
+        }
+        
+        Serial.println("RemoteSigner::removeOldestClient() - Removed oldest client");
+    }
+    
+    bool trySaveConfigToPreferences() {
+        Preferences prefs;
+        if (!prefs.begin("signer", false)) { // Read-write
+            Serial.println("RemoteSigner::trySaveConfigToPreferences() - Failed to open preferences");
+            return false;
+        }
+        
+        bool success = true;
+        
+        // Try to save each setting
+        if (prefs.putString("relay_url", relayUrl) == 0) {
+            Serial.println("RemoteSigner::trySaveConfigToPreferences() - Failed to save relay_url");
+            success = false;
+        }
+        
+        if (prefs.putString("user_private_key", userPrivateKeyHex) == 0) {
+            Serial.println("RemoteSigner::trySaveConfigToPreferences() - Failed to save user_private_key");
+            success = false;
+        }
+        
+        if (prefs.putString("user_public_key", userPublicKeyHex) == 0) {
+            Serial.println("RemoteSigner::trySaveConfigToPreferences() - Failed to save user_public_key");
+            success = false;
+        }
+        
+        if (prefs.putString("auth_clients", authorizedClients) == 0) {
+            Serial.println("RemoteSigner::trySaveConfigToPreferences() - Failed to save auth_clients (size: " + String(authorizedClients.length()) + " chars)");
+            success = false;
+        }
+        
+        prefs.end();
+        
+        if (success) {
+            Serial.println("RemoteSigner::trySaveConfigToPreferences() - Configuration saved successfully");
+        }
+        
+        return success;
+    }
+    
+    void clearAllAuthorizedClients() {
+        authorizedClients = "";
+        saveConfigToPreferences();
+        Serial.println("RemoteSigner::clearAllAuthorizedClients() - All authorized clients cleared");
     }
     
     void processLoop() {
@@ -822,9 +942,57 @@ namespace RemoteSigner {
     // Getters
     String getRelayUrl() { return relayUrl; }
     void setRelayUrl(const String& url) { relayUrl = url; }
-    String getPrivateKey() { return privateKeyHex; }
-    void setPrivateKey(const String& privKeyHex) { 
-        privateKeyHex = privKeyHex; 
+    // Legacy compatibility functions (map to user keypair)
+    String getPrivateKey() { return userPrivateKeyHex; }
+    void setPrivateKey(const String& privKeyHex) { setUserPrivateKey(privKeyHex); }
+    String getPublicKey() { return userPublicKeyHex; }
+    void setStatusLabel(lv_obj_t* label) { 
+        status_label = label; 
+        // Update status immediately after setting the label
+        displayConnectionStatus(isConnected());
+    }
+    
+    // New keypair management functions
+    void generateDeviceKeypair() {
+        // Generate random 32-byte private key
+        devicePrivateKeyHex = "";
+        for (int i = 0; i < 64; i++) {
+            devicePrivateKeyHex += "0123456789abcdef"[esp_random() % 16];
+        }
+        
+        // Derive public key from private key
+        try {
+            int byteSize = 32;
+            byte privateKeyBytes[byteSize];
+            fromHex(devicePrivateKeyHex, privateKeyBytes, byteSize);
+            PrivateKey privKey(privateKeyBytes);
+            PublicKey pub = privKey.publicKey();
+            devicePublicKeyHex = pub.toString();
+            // remove leading 2 bytes from public key
+            devicePublicKeyHex = devicePublicKeyHex.substring(2);
+            Serial.println("RemoteSigner::generateDeviceKeypair() - Generated device keypair");
+            Serial.println("Device public key: " + devicePublicKeyHex);
+        } catch (...) {
+            Serial.println("RemoteSigner: ERROR - Failed to generate device keypair");
+        }
+    }
+    
+    void saveDeviceKeypairToPreferences() {
+        Preferences prefs;
+        if (prefs.begin("signer", false)) { // Read-write
+            prefs.putString("device_private_key", devicePrivateKeyHex);
+            prefs.putString("device_public_key", devicePublicKeyHex);
+            prefs.end();
+            Serial.println("RemoteSigner::saveDeviceKeypairToPreferences() - Device keypair saved (immutable)");
+        } else {
+            Serial.println("RemoteSigner::saveDeviceKeypairToPreferences() - ERROR - Failed to save device keypair");
+        }
+    }
+    
+    // Updated getter/setter functions
+    String getUserPrivateKey() { return userPrivateKeyHex; }
+    void setUserPrivateKey(const String& privKeyHex) { 
+        userPrivateKeyHex = privKeyHex; 
         // Derive public key automatically
         if (privKeyHex.length() == 64) {
             try {
@@ -833,19 +1001,15 @@ namespace RemoteSigner {
                 fromHex(privKeyHex, privateKeyBytes, byteSize);
                 PrivateKey privKey(privateKeyBytes);
                 PublicKey pub = privKey.publicKey();
-                publicKeyHex = pub.toString();
+                userPublicKeyHex = pub.toString();
                 // remove leading 2 bytes from public key
-                publicKeyHex = publicKeyHex.substring(2);
-                Serial.println("RemoteSigner: Derived public key: " + publicKeyHex);
+                userPublicKeyHex = userPublicKeyHex.substring(2);
+                Serial.println("RemoteSigner: Derived user public key: " + userPublicKeyHex);
             } catch (...) {
-                Serial.println("RemoteSigner: ERROR - Failed to derive public key");
+                Serial.println("RemoteSigner: ERROR - Failed to derive user public key");
             }
         }
     }
-    String getPublicKey() { return publicKeyHex; }
-    void setStatusLabel(lv_obj_t* label) { 
-        status_label = label; 
-        // Update status immediately after setting the label
-        displayConnectionStatus(isConnected());
-    }
+    String getUserPublicKey() { return userPublicKeyHex; }
+    String getDevicePublicKey() { return devicePublicKeyHex; }
 }

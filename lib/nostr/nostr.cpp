@@ -12,6 +12,8 @@ namespace nostr
     };
  
     static const bool ENABLE_LOGGING = false;
+    static const bool ENABLE_TIMER_LOGGING = true;
+
     const int ECDH_CACHE_SIZE = 8;
     const unsigned long ECDH_CACHE_TTL_MS = 300000; // 5 minutes
     ECDHCacheEntry ecdhCache[ECDH_CACHE_SIZE];
@@ -159,7 +161,7 @@ namespace nostr
     unsigned long timer = 0;
     void _startTimer(const char *timedEvent)
     {
-        if(!ENABLE_LOGGING) {
+        if(!ENABLE_TIMER_LOGGING) {
             return;
         }
         timer = millis();
@@ -169,7 +171,7 @@ namespace nostr
 
     void _stopTimer(const char *timedEvent)
     {
-        if(!ENABLE_LOGGING) {
+        if(!ENABLE_TIMER_LOGGING) {
             return;
         }
         unsigned long elapsedTime = millis() - timer;
@@ -277,7 +279,7 @@ namespace nostr
             byte senderPublicKeyBin[64];
             fromHex(fullPubKeyHex, senderPublicKeyBin, 64);
             senderPublicKey = PublicKey(senderPublicKeyBin);
-            // Store in cache for future use
+
             storePublicKeyInCache(fullPubKeyHex, new PublicKey(senderPublicKeyBin));
             _stopTimer("decryptNip04Ciphertext: Got senderPublicKey (computed)");
         }
@@ -406,7 +408,7 @@ namespace nostr
             byte senderPublicKeyBin[64];
             fromHex(fullPubKeyHex, senderPublicKeyBin, 64);
             senderPublicKey = PublicKey(senderPublicKeyBin);
-            // Store in cache for future use
+
             storePublicKeyInCache(fullPubKeyHex, new PublicKey(senderPublicKeyBin));
             _stopTimer("nip04Decrypt: Got senderPublicKey (computed)");
         }
@@ -623,7 +625,7 @@ namespace nostr
             byte publicKeyBin[64];
             fromHex(fullRecipientPubKeyHex, publicKeyBin, 64);
             otherDhPublicKey = PublicKey(publicKeyBin);
-            // Store in cache for future use
+
             storePublicKeyInCache(fullRecipientPubKeyHex, new PublicKey(publicKeyBin));
             _stopTimer("getCipherText: create otherDhPublicKey object (computed)");
         }
