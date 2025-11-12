@@ -3,6 +3,154 @@
 
 namespace nostr
 {
+    // ECDH caching for performance optimization
+    struct ECDHCacheEntry {
+        String privateKeyHex;
+        String publicKeyHex;
+        byte sharedSecret[32];
+        unsigned long timestamp;
+    };
+    
+    const int ECDH_CACHE_SIZE = 8;
+    const unsigned long ECDH_CACHE_TTL_MS = 300000; // 5 minutes
+    ECDHCacheEntry ecdhCache[ECDH_CACHE_SIZE];
+    int ecdhCacheIndex = 0;
+    bool ecdhCacheInitialized = false;
+    
+    // Key object caching for performance optimization
+    struct KeyCacheEntry {
+        String keyHex;
+        PrivateKey* privateKey;
+        PublicKey* publicKey;
+        bool isPrivateKey;
+        unsigned long timestamp;
+    };
+    
+    const int KEY_CACHE_SIZE = 6;
+    const unsigned long KEY_CACHE_TTL_MS = 300000; // 5 minutes
+    KeyCacheEntry keyCache[KEY_CACHE_SIZE];
+    int keyCacheIndex = 0;
+    bool keyCacheInitialized = false;
+    
+    void initECDHCache() {
+        if (!ecdhCacheInitialized) {
+            for (int i = 0; i < ECDH_CACHE_SIZE; i++) {
+                ecdhCache[i].privateKeyHex = "";
+                ecdhCache[i].publicKeyHex = "";
+                ecdhCache[i].timestamp = 0;
+            }
+            ecdhCacheInitialized = true;
+        }
+    }
+    
+    void initKeyCache() {
+        if (!keyCacheInitialized) {
+            for (int i = 0; i < KEY_CACHE_SIZE; i++) {
+                keyCache[i].keyHex = "";
+                keyCache[i].privateKey = nullptr;
+                keyCache[i].publicKey = nullptr;
+                keyCache[i].isPrivateKey = false;
+                keyCache[i].timestamp = 0;
+            }
+            keyCacheInitialized = true;
+        }
+    }
+    
+    PrivateKey* getCachedPrivateKey(const String& keyHex) {
+        initKeyCache();
+        unsigned long currentTime = millis();
+        
+        for (int i = 0; i < KEY_CACHE_SIZE; i++) {
+            if (keyCache[i].keyHex == keyHex && 
+                keyCache[i].isPrivateKey &&
+                keyCache[i].privateKey != nullptr &&
+                (currentTime - keyCache[i].timestamp) < KEY_CACHE_TTL_MS) {
+                return keyCache[i].privateKey;
+            }
+        }
+        return nullptr;
+    }
+    
+    PublicKey* getCachedPublicKey(const String& keyHex) {
+        initKeyCache();
+        unsigned long currentTime = millis();
+        
+        for (int i = 0; i < KEY_CACHE_SIZE; i++) {
+            if (keyCache[i].keyHex == keyHex && 
+                !keyCache[i].isPrivateKey &&
+                keyCache[i].publicKey != nullptr &&
+                (currentTime - keyCache[i].timestamp) < KEY_CACHE_TTL_MS) {
+                return keyCache[i].publicKey;
+            }
+        }
+        return nullptr;
+    }
+    
+    void storePrivateKeyInCache(const String& keyHex, PrivateKey* privateKey) {
+        initKeyCache();
+        
+        // Clean up old entry if overwriting
+        if (keyCache[keyCacheIndex].privateKey != nullptr) {
+            delete keyCache[keyCacheIndex].privateKey;
+        }
+        if (keyCache[keyCacheIndex].publicKey != nullptr) {
+            delete keyCache[keyCacheIndex].publicKey;
+        }
+        
+        keyCache[keyCacheIndex].keyHex = keyHex;
+        keyCache[keyCacheIndex].privateKey = privateKey;
+        keyCache[keyCacheIndex].publicKey = nullptr;
+        keyCache[keyCacheIndex].isPrivateKey = true;
+        keyCache[keyCacheIndex].timestamp = millis();
+        
+        keyCacheIndex = (keyCacheIndex + 1) % KEY_CACHE_SIZE;
+    }
+    
+    void storePublicKeyInCache(const String& keyHex, PublicKey* publicKey) {
+        initKeyCache();
+        
+        // Clean up old entry if overwriting
+        if (keyCache[keyCacheIndex].privateKey != nullptr) {
+            delete keyCache[keyCacheIndex].privateKey;
+        }
+        if (keyCache[keyCacheIndex].publicKey != nullptr) {
+            delete keyCache[keyCacheIndex].publicKey;
+        }
+        
+        keyCache[keyCacheIndex].keyHex = keyHex;
+        keyCache[keyCacheIndex].privateKey = nullptr;
+        keyCache[keyCacheIndex].publicKey = publicKey;
+        keyCache[keyCacheIndex].isPrivateKey = false;
+        keyCache[keyCacheIndex].timestamp = millis();
+        
+        keyCacheIndex = (keyCacheIndex + 1) % KEY_CACHE_SIZE;
+    }
+    
+    bool getECDHFromCache(const String& privateKeyHex, const String& publicKeyHex, byte* sharedSecret) {
+        initECDHCache();
+        unsigned long currentTime = millis();
+        
+        for (int i = 0; i < ECDH_CACHE_SIZE; i++) {
+            if (ecdhCache[i].privateKeyHex == privateKeyHex && 
+                ecdhCache[i].publicKeyHex == publicKeyHex &&
+                (currentTime - ecdhCache[i].timestamp) < ECDH_CACHE_TTL_MS) {
+                memcpy(sharedSecret, ecdhCache[i].sharedSecret, 32);
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    void storeECDHInCache(const String& privateKeyHex, const String& publicKeyHex, const byte* sharedSecret) {
+        initECDHCache();
+        
+        ecdhCache[ecdhCacheIndex].privateKeyHex = privateKeyHex;
+        ecdhCache[ecdhCacheIndex].publicKeyHex = publicKeyHex;
+        memcpy(ecdhCache[ecdhCacheIndex].sharedSecret, sharedSecret, 32);
+        ecdhCache[ecdhCacheIndex].timestamp = millis();
+        
+        ecdhCacheIndex = (ecdhCacheIndex + 1) % ECDH_CACHE_SIZE;
+    }
 
     DynamicJsonDocument nostrEventDoc(0);
     byte *encryptedMessageBin;
@@ -93,24 +241,54 @@ namespace nostr
         _logToSerialWithTitle("iv", iv);
         _stopTimer("decryptNip04Ciphertext: Got ivBin");
 
-        int byteSize = 32;
-        byte privateKeyBytes[byteSize];
-        fromHex(privateKeyHex, privateKeyBytes, byteSize);
-        PrivateKey privateKey(privateKeyBytes);
-        _stopTimer("decryptNip04Ciphertext: Got privateKey");
+        PrivateKey* cachedPrivateKey = getCachedPrivateKey(privateKeyHex);
+        PrivateKey privateKey;
+        
+        if (cachedPrivateKey != nullptr) {
+            privateKey = *cachedPrivateKey;
+            _stopTimer("decryptNip04Ciphertext: Got privateKey (cached)");
+        } else {
+            int byteSize = 32;
+            byte privateKeyBytes[byteSize];
+            fromHex(privateKeyHex, privateKeyBytes, byteSize);
+            privateKey = PrivateKey(privateKeyBytes);
+            // Store in cache for future use
+            storePrivateKeyInCache(privateKeyHex, new PrivateKey(privateKeyBytes));
+            _stopTimer("decryptNip04Ciphertext: Got privateKey (computed)");
+        }
 
         _logToSerialWithTitle("senderPubKeyHex", senderPubKeyHex);
-        byte senderPublicKeyBin[64];
-        fromHex("02" + String(senderPubKeyHex), senderPublicKeyBin, 64);
-        PublicKey senderPublicKey(senderPublicKeyBin);
-        _stopTimer("decryptNip04Ciphertext: Got senderPublicKey");
+        String fullPubKeyHex = "02" + String(senderPubKeyHex);
+        PublicKey* cachedPublicKey = getCachedPublicKey(fullPubKeyHex);
+        PublicKey senderPublicKey;
+        
+        if (cachedPublicKey != nullptr) {
+            senderPublicKey = *cachedPublicKey;
+            _stopTimer("decryptNip04Ciphertext: Got senderPublicKey (cached)");
+        } else {
+            byte senderPublicKeyBin[64];
+            fromHex(fullPubKeyHex, senderPublicKeyBin, 64);
+            senderPublicKey = PublicKey(senderPublicKeyBin);
+            // Store in cache for future use
+            storePublicKeyInCache(fullPubKeyHex, new PublicKey(senderPublicKeyBin));
+            _stopTimer("decryptNip04Ciphertext: Got senderPublicKey (computed)");
+        }
         _logToSerialWithTitle("senderPublicKey.toString() is", senderPublicKey.toString());
 
         byte sharedPointX[32];
-        privateKey.ecdh(senderPublicKey, sharedPointX, false);
+        
+        // Try to get ECDH result from cache first
+        if (getECDHFromCache(privateKeyHex, senderPubKeyHex, sharedPointX)) {
+            _stopTimer("decryptNip04Ciphertext: Got sharedPointX (cached)");
+        } else {
+            privateKey.ecdh(senderPublicKey, sharedPointX, false);
+            // Store result in cache for future use
+            storeECDHInCache(privateKeyHex, senderPubKeyHex, sharedPointX);
+            _stopTimer("decryptNip04Ciphertext: Got sharedPointX (computed)");
+        }
+        
         String sharedPointXHex = toHex(sharedPointX, sizeof(sharedPointX));
         _logToSerialWithTitle("sharedPointXHex is", sharedPointXHex);
-        _stopTimer("decryptNip04Ciphertext: Got sharedPointX");
 
         String message = decryptData(sharedPointX, ivBin, encryptedMessageBin, encryptedMessageSize);
         message.trim();
@@ -192,17 +370,38 @@ namespace nostr
 
         _logToSerialWithTitle("encryptedMessage", encryptedMessage);
 
-        int byteSize = 32;
-        byte privateKeyBytes[byteSize];
-        fromHex(privateKeyHex, privateKeyBytes, byteSize);
-        PrivateKey privateKey(privateKeyBytes);
-        _stopTimer("nip04Decrypt: Got privateKey");
+        PrivateKey* cachedPrivateKey = getCachedPrivateKey(String(privateKeyHex));
+        PrivateKey privateKey;
+        
+        if (cachedPrivateKey != nullptr) {
+            privateKey = *cachedPrivateKey;
+            _stopTimer("nip04Decrypt: Got privateKey (cached)");
+        } else {
+            int byteSize = 32;
+            byte privateKeyBytes[byteSize];
+            fromHex(privateKeyHex, privateKeyBytes, byteSize);
+            privateKey = PrivateKey(privateKeyBytes);
+            // Store in cache for future use
+            storePrivateKeyInCache(String(privateKeyHex), new PrivateKey(privateKeyBytes));
+            _stopTimer("nip04Decrypt: Got privateKey (computed)");
+        }
 
         _logToSerialWithTitle("senderPubKeyHex", senderPubKeyHex);
-        byte senderPublicKeyBin[64];
-        fromHex("02" + String(senderPubKeyHex), senderPublicKeyBin, 64);
-        PublicKey senderPublicKey(senderPublicKeyBin);
-        _stopTimer("nip04Decrypt: Got senderPublicKey");
+        String fullPubKeyHex = "02" + String(senderPubKeyHex);
+        PublicKey* cachedPublicKey = getCachedPublicKey(fullPubKeyHex);
+        PublicKey senderPublicKey;
+        
+        if (cachedPublicKey != nullptr) {
+            senderPublicKey = *cachedPublicKey;
+            _stopTimer("nip04Decrypt: Got senderPublicKey (cached)");
+        } else {
+            byte senderPublicKeyBin[64];
+            fromHex(fullPubKeyHex, senderPublicKeyBin, 64);
+            senderPublicKey = PublicKey(senderPublicKeyBin);
+            // Store in cache for future use
+            storePublicKeyInCache(fullPubKeyHex, new PublicKey(senderPublicKeyBin));
+            _stopTimer("nip04Decrypt: Got senderPublicKey (computed)");
+        }
         _logToSerialWithTitle("senderPublicKey.toString() is", senderPublicKey.toString());
 
         return decryptNip04Ciphertext(content, privateKeyHex, senderPubKeyHex);
@@ -272,14 +471,25 @@ namespace nostr
         _logToSerialWithTitle("SHA-256: ", msgHash);
 
         // Create the private key object
-        int byteSize = 32;
-        byte privateKeyBytes[byteSize];
-        fromHex(privateKeyHex, privateKeyBytes, byteSize);
-        _stopTimer("convert privateKeyHex to byte array");
-        PrivateKey privateKey(privateKeyBytes);
-        _stopTimer("create privateKey object");
+        PrivateKey* cachedPrivateKey = getCachedPrivateKey(String(privateKeyHex));
+        PrivateKey privateKey;
+        
+        if (cachedPrivateKey != nullptr) {
+            privateKey = *cachedPrivateKey;
+            _stopTimer("create privateKey object (cached)");
+        } else {
+            int byteSize = 32;
+            byte privateKeyBytes[byteSize];
+            fromHex(privateKeyHex, privateKeyBytes, byteSize);
+            _stopTimer("convert privateKeyHex to byte array");
+            privateKey = PrivateKey(privateKeyBytes);
+            // Store in cache for future use
+            storePrivateKeyInCache(String(privateKeyHex), new PrivateKey(privateKeyBytes));
+            _stopTimer("create privateKey object (computed)");
+        }
 
         // Generate the schnorr sig of the messageHash
+        int byteSize = 32;
         byte messageBytes[byteSize];
         fromHex(msgHash, messageBytes, byteSize);
         _stopTimer("convert msgHash to byte array");
@@ -379,23 +589,53 @@ namespace nostr
         _startTimer("getCipherText");
         // Get shared point
         // Create the private key object
-        int byteSize = 32;
-        byte privateKeyBytes[byteSize];
-        fromHex(privateKeyHex, privateKeyBytes, byteSize);
-        PrivateKey privateKey(privateKeyBytes);
-        _stopTimer("getCipherText: create privateKey object");
+        PrivateKey* cachedPrivateKey = getCachedPrivateKey(String(privateKeyHex));
+        PrivateKey privateKey;
+        
+        if (cachedPrivateKey != nullptr) {
+            privateKey = *cachedPrivateKey;
+            _stopTimer("getCipherText: create privateKey object (cached)");
+        } else {
+            int byteSize = 32;
+            byte privateKeyBytes[byteSize];
+            fromHex(privateKeyHex, privateKeyBytes, byteSize);
+            privateKey = PrivateKey(privateKeyBytes);
+            // Store in cache for future use
+            storePrivateKeyInCache(String(privateKeyHex), new PrivateKey(privateKeyBytes));
+            _stopTimer("getCipherText: create privateKey object (computed)");
+        }
 
-        byte publicKeyBin[64];
-        fromHex("02" + String(recipientPubKeyHex), publicKeyBin, 64);
-        PublicKey otherDhPublicKey(publicKeyBin);
+        String fullRecipientPubKeyHex = "02" + String(recipientPubKeyHex);
+        PublicKey* cachedPublicKey = getCachedPublicKey(fullRecipientPubKeyHex);
+        PublicKey otherDhPublicKey;
+        
+        if (cachedPublicKey != nullptr) {
+            otherDhPublicKey = *cachedPublicKey;
+            _stopTimer("getCipherText: create otherDhPublicKey object (cached)");
+        } else {
+            byte publicKeyBin[64];
+            fromHex(fullRecipientPubKeyHex, publicKeyBin, 64);
+            otherDhPublicKey = PublicKey(publicKeyBin);
+            // Store in cache for future use
+            storePublicKeyInCache(fullRecipientPubKeyHex, new PublicKey(publicKeyBin));
+            _stopTimer("getCipherText: create otherDhPublicKey object (computed)");
+        }
         _logToSerialWithTitle("otherDhPublicKey.toString() is", otherDhPublicKey.toString());
-        _stopTimer("getCipherText: create otherDhPublicKey object");
 
         byte sharedPointX[32];
-        privateKey.ecdh(otherDhPublicKey, sharedPointX, false);
+        
+        // Try to get ECDH result from cache first
+        if (getECDHFromCache(String(privateKeyHex), String(recipientPubKeyHex), sharedPointX)) {
+            _stopTimer("getCipherText: get sharedPointX (cached)");
+        } else {
+            privateKey.ecdh(otherDhPublicKey, sharedPointX, false);
+            // Store result in cache for future use
+            storeECDHInCache(String(privateKeyHex), String(recipientPubKeyHex), sharedPointX);
+            _stopTimer("getCipherText: get sharedPointX (computed)");
+        }
+        
         String sharedPointXHex = toHex(sharedPointX, sizeof(sharedPointX));
         _logToSerialWithTitle("sharedPointXHex is", sharedPointXHex);
-        _stopTimer("getCipherText: get sharedPointX");
 
         // Create the initialization vector
         uint8_t iv[16];
@@ -501,12 +741,22 @@ namespace nostr
         _logToSerialWithTitle("SHA-256:", msgHash);
         _stopTimer("get sha256 hash of message");
 
-        int byteSize = 32;
-        byte privateKeyBytes[byteSize];
-        fromHex(privateKeyHex, privateKeyBytes, byteSize);
-        _stopTimer("get privateKeyBytes from hex");
-        PrivateKey privateKey(privateKeyBytes);
-        _stopTimer("create privateKey object");
+        PrivateKey* cachedPrivateKey = getCachedPrivateKey(String(privateKeyHex));
+        PrivateKey privateKey;
+        
+        if (cachedPrivateKey != nullptr) {
+            privateKey = *cachedPrivateKey;
+            _stopTimer("create privateKey object (cached)");
+        } else {
+            int byteSize = 32;
+            byte privateKeyBytes[byteSize];
+            fromHex(privateKeyHex, privateKeyBytes, byteSize);
+            _stopTimer("get privateKeyBytes from hex");
+            privateKey = PrivateKey(privateKeyBytes);
+            // Store in cache for future use
+            storePrivateKeyInCache(String(privateKeyHex), new PrivateKey(privateKeyBytes));
+            _stopTimer("create privateKey object (computed)");
+        }
         // Generate the schnorr sig of the messageHash
         SchnorrSignature signature = privateKey.schnorr_sign(hash);
         _stopTimer("generate schnorr sig");
