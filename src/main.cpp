@@ -27,8 +27,6 @@
 // Import Nostr library for memory initialization
 #include "../lib/nostr/nostr.h"
 
-static const String SOFTWARE_VERSION = "v1.1.0";
-
 // Memory space definitions for Nostr operations to prevent heap fragmentation
 #define EVENT_NOTE_SIZE 2000000
 #define ENCRYPTED_MESSAGE_BIN_SIZE 100000
@@ -91,8 +89,6 @@ void setup(void)
 {
     Serial.begin(115200);
     Serial.println("=== Remote Nostr Signer Starting ===");
-    Serial.println("Software Version: " + SOFTWARE_VERSION);
-    
     // Initialize PSRAM memory space for Nostr operations to prevent heap fragmentation
     Serial.println("Initializing Nostr memory space...");
     nostr::initMemorySpace(EVENT_NOTE_SIZE, ENCRYPTED_MESSAGE_BIN_SIZE);
