@@ -3,6 +3,56 @@
 
 namespace nostr
 {
+    // ECDH caching for performance optimization
+    struct ECDHCacheEntry {
+        String privateKeyHex;
+        String publicKeyHex;
+        byte sharedSecret[32];
+        unsigned long timestamp;
+    };
+    
+    const int ECDH_CACHE_SIZE = 8;
+    const unsigned long ECDH_CACHE_TTL_MS = 300000; // 5 minutes
+    ECDHCacheEntry ecdhCache[ECDH_CACHE_SIZE];
+    int ecdhCacheIndex = 0;
+    bool ecdhCacheInitialized = false;
+    
+    void initECDHCache() {
+        if (!ecdhCacheInitialized) {
+            for (int i = 0; i < ECDH_CACHE_SIZE; i++) {
+                ecdhCache[i].privateKeyHex = "";
+                ecdhCache[i].publicKeyHex = "";
+                ecdhCache[i].timestamp = 0;
+            }
+            ecdhCacheInitialized = true;
+        }
+    }
+    
+    bool getECDHFromCache(const String& privateKeyHex, const String& publicKeyHex, byte* sharedSecret) {
+        initECDHCache();
+        unsigned long currentTime = millis();
+        
+        for (int i = 0; i < ECDH_CACHE_SIZE; i++) {
+            if (ecdhCache[i].privateKeyHex == privateKeyHex && 
+                ecdhCache[i].publicKeyHex == publicKeyHex &&
+                (currentTime - ecdhCache[i].timestamp) < ECDH_CACHE_TTL_MS) {
+                memcpy(sharedSecret, ecdhCache[i].sharedSecret, 32);
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    void storeECDHInCache(const String& privateKeyHex, const String& publicKeyHex, const byte* sharedSecret) {
+        initECDHCache();
+        
+        ecdhCache[ecdhCacheIndex].privateKeyHex = privateKeyHex;
+        ecdhCache[ecdhCacheIndex].publicKeyHex = publicKeyHex;
+        memcpy(ecdhCache[ecdhCacheIndex].sharedSecret, sharedSecret, 32);
+        ecdhCache[ecdhCacheIndex].timestamp = millis();
+        
+        ecdhCacheIndex = (ecdhCacheIndex + 1) % ECDH_CACHE_SIZE;
+    }
 
     DynamicJsonDocument nostrEventDoc(0);
     byte *encryptedMessageBin;
@@ -107,10 +157,19 @@ namespace nostr
         _logToSerialWithTitle("senderPublicKey.toString() is", senderPublicKey.toString());
 
         byte sharedPointX[32];
-        privateKey.ecdh(senderPublicKey, sharedPointX, false);
+        
+        // Try to get ECDH result from cache first
+        if (getECDHFromCache(privateKeyHex, senderPubKeyHex, sharedPointX)) {
+            _stopTimer("decryptNip04Ciphertext: Got sharedPointX (cached)");
+        } else {
+            privateKey.ecdh(senderPublicKey, sharedPointX, false);
+            // Store result in cache for future use
+            storeECDHInCache(privateKeyHex, senderPubKeyHex, sharedPointX);
+            _stopTimer("decryptNip04Ciphertext: Got sharedPointX (computed)");
+        }
+        
         String sharedPointXHex = toHex(sharedPointX, sizeof(sharedPointX));
         _logToSerialWithTitle("sharedPointXHex is", sharedPointXHex);
-        _stopTimer("decryptNip04Ciphertext: Got sharedPointX");
 
         String message = decryptData(sharedPointX, ivBin, encryptedMessageBin, encryptedMessageSize);
         message.trim();
@@ -392,10 +451,19 @@ namespace nostr
         _stopTimer("getCipherText: create otherDhPublicKey object");
 
         byte sharedPointX[32];
-        privateKey.ecdh(otherDhPublicKey, sharedPointX, false);
+        
+        // Try to get ECDH result from cache first
+        if (getECDHFromCache(String(privateKeyHex), String(recipientPubKeyHex), sharedPointX)) {
+            _stopTimer("getCipherText: get sharedPointX (cached)");
+        } else {
+            privateKey.ecdh(otherDhPublicKey, sharedPointX, false);
+            // Store result in cache for future use
+            storeECDHInCache(String(privateKeyHex), String(recipientPubKeyHex), sharedPointX);
+            _stopTimer("getCipherText: get sharedPointX (computed)");
+        }
+        
         String sharedPointXHex = toHex(sharedPointX, sizeof(sharedPointX));
         _logToSerialWithTitle("sharedPointXHex is", sharedPointXHex);
-        _stopTimer("getCipherText: get sharedPointX");
 
         // Create the initialization vector
         uint8_t iv[16];
