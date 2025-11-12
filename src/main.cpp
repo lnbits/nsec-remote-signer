@@ -27,7 +27,7 @@
 // Import Nostr library for memory initialization
 #include "../lib/nostr/nostr.h"
 
-static const String SOFTWARE_VERSION = "v1.0.0";
+static const String SOFTWARE_VERSION = "v1.1.0";
 
 // Memory space definitions for Nostr operations to prevent heap fragmentation
 #define EVENT_NOTE_SIZE 2000000
