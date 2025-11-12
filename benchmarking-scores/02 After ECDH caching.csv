@@ -1,0 +1,18 @@
+Recorded 15 out of max 15 test results:
+Test Name                | Size    | Time(ms) | Heap(B) | Throughput(B/s)
+-------------------------|---------|----------|---------|----------------
+AES Encrypt 16B          |      16 |        0 |       0 |         0.00
+AES Encrypt 64B          |      64 |        0 |       0 |         0.00
+AES Encrypt 256B         |     256 |        1 |       0 |    256000.00
+AES Encrypt 1024B        |    1024 |        3 |       0 |    341333.33
+AES Decrypt 16B          |      16 |        0 |       0 |         0.00
+AES Decrypt 64B          |      64 |        0 |       0 |         0.00
+AES Decrypt 256B         |     256 |        1 |       0 |    256000.00
+AES Decrypt 1024B        |    1024 |        5 |       0 |    204800.00
+AES 5x Encrypt/Decrypt   |    2560 |       10 |       0 |    256000.00
+NIP04 Encrypt 16B        |      16 |      117 |     384 |       136.75
+NIP04 Encrypt 64B        |      64 |       42 |     352 |      1523.81
+NIP04 Encrypt 256B       |     256 |       43 |     992 |      5953.49
+NIP04 Decrypt 16B        |      16 |       42 |      64 |       380.95
+NIP04 Decrypt 64B        |      64 |       42 |     112 |      1523.81
+NIP04 Decrypt 256B       |     256 |       45 |     304 |      5688.89
