@@ -115,20 +115,10 @@ void setup(void)
 
 void loop(void)
 {
-    // Process LVGL GUI events
     lv_timer_handler();
     
-    // Run main application logic through App coordinator
     App::run();
     
-    // Force periodic screen refresh for dynamic content (like WiFi scan lists)
-    static unsigned long lastRefresh = 0;
-    if (millis() - lastRefresh > 500) { // Every 500ms
-        lv_refr_now(lv_disp_get_default());
-        lastRefresh = millis();
-    }
-    
-    // Small delay for stability
     delay(5);
 }
 

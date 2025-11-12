@@ -10,7 +10,8 @@ namespace nostr
         byte sharedSecret[32];
         unsigned long timestamp;
     };
-    
+ 
+    static const bool ENABLE_LOGGING = false;
     const int ECDH_CACHE_SIZE = 8;
     const unsigned long ECDH_CACHE_TTL_MS = 300000; // 5 minutes
     ECDHCacheEntry ecdhCache[ECDH_CACHE_SIZE];
@@ -158,13 +159,19 @@ namespace nostr
     unsigned long timer = 0;
     void _startTimer(const char *timedEvent)
     {
+        if(!ENABLE_LOGGING) {
+            return;
+        }
         timer = millis();
-        // Serial.print("Starting timer for ");
-        // Serial.println(timedEvent);
+        Serial.print("Starting timer for ");
+        Serial.println(timedEvent);
     }
 
     void _stopTimer(const char *timedEvent)
     {
+        if(!ENABLE_LOGGING) {
+            return;
+        }
         unsigned long elapsedTime = millis() - timer;
         Serial.print(elapsedTime);
         Serial.print(" ms - ");
@@ -180,12 +187,17 @@ namespace nostr
 
     void _logToSerialWithTitle(String title, String message)
     {
+        if(!ENABLE_LOGGING) {
+            return;
+        }
         Serial.println(title + ": " + message);
     }
 
     void _logOkWithHeapSize(const char *message)
     {
-        Serial.print(message);
+        if(!ENABLE_LOGGING) {
+            return;
+        }
         Serial.print(" OK.");
         Serial.print(" Free heap size: ");
         Serial.println(esp_get_free_heap_size());
@@ -206,8 +218,6 @@ namespace nostr
         AES_init_ctx_iv(&ctx, key, iv);
         AES_CBC_decrypt_buffer(&ctx, encryptedMessageBin, byteSize); // Use byteSize directly
 
-        // //_logOkWithHeapSize("Decrypted AES data");
-
         // Convert the decrypted data to a String. Ensure that the data is null-terminated if treating as a C-string.
         // If the decrypted data may not be null-terminated or might contain null bytes within,
         // you'll need a different strategy to create the String object correctly.
@@ -220,8 +230,6 @@ namespace nostr
                 break; // Stop if a null character is found
         }
 
-        // Note: No need to free encryptedMessageBin here if it's managed outside this function
-
         return decryptedData;
     }
 
@@ -229,7 +237,7 @@ namespace nostr
     {
         _startTimer("decryptNip04Ciphertext");
         String encryptedMessage = cipherText.substring(0, cipherText.indexOf("?iv="));
-        // //_logOkWithHeapSize("Got encryptedMessage");
+        _logOkWithHeapSize("Got encryptedMessage");
         int encryptedMessageSize = (encryptedMessage.length() * 3) / 4;
         fromBase64(encryptedMessage, encryptedMessageBin, encryptedMessageSize); // Assuming fromBase64 modifies encryptedMessageSize to actual decoded size
 
@@ -411,11 +419,10 @@ namespace nostr
     {
         _startTimer("nip44Decrypt: nip44Decrypt");
         auto result = getPubKeyAndContent(serialisedJson);
-        Serial.println("nip44Decrypt: result is: " + result.first + " " + result.second);
         String senderPubKeyHex = result.first;
-        Serial.println("nip44Decrypt: senderPubKeyHex is: " + senderPubKeyHex);
+        _logToSerialWithTitle("nip44Decrypt: senderPubKeyHex is", senderPubKeyHex);
         String content = result.second;
-        Serial.println("nip44Decrypt: content is: " + content);
+        _logToSerialWithTitle("nip44Decrypt: content is", content);
         _stopTimer("nip44Decrypt: Got result from getPubKeyAndContent");
 
         return executeDecryptMessageNip44(content, privateKeyHex, senderPubKeyHex);
@@ -721,7 +728,7 @@ namespace nostr
         if (type == "nip44") {
             _startTimer("getEncrypted NIP44 Dm");
             encryptedMessageBase64 = executeEncryptMessageNip44(content, privateKeyHex, recipientPubKeyHex);
-            Serial.println("NIP44 encrypted message: " + encryptedMessageBase64);
+            _logToSerialWithTitle("NIP44 encrypted message is: ", encryptedMessageBase64);
             _stopTimer("executeEncryptMessageNip44");
         } else {
             _startTimer("getEncrypted NIP44 Dm");

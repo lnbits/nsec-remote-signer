@@ -91,9 +91,6 @@ namespace UI {
         lv_obj_clean(lv_scr_act());
         cleanupGlobalPointers();
         
-        // Add a small delay to allow the clear to complete
-        lv_timer_handler();
-        
         switch (screen) {
             case SCREEN_SIGNER_STATUS:
                 createSignerStatusScreen();
@@ -114,9 +111,6 @@ namespace UI {
                 createInfoScreen();
                 break;
         }
-        
-        // Force an immediate refresh after screen creation
-        lv_timer_handler();
     }
 
     /**
