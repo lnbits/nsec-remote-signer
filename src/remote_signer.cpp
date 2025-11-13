@@ -115,7 +115,7 @@ namespace RemoteSigner {
         Preferences prefs;
         prefs.begin("signer", true); // Read-only
         
-        relayUrl = prefs.getString("relay_url", "wss://relay.nostriot.com");
+        relayUrl = prefs.getString("relay_url", "wss://relay.nostrconnect.com");
         
         // Load user's keypair (migrate from old "private_key" if needed)
         userPrivateKeyHex = prefs.getString("user_private_key", "");
