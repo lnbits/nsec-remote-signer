@@ -517,6 +517,7 @@ namespace RemoteSigner
 
         webSocket.sendTXT(encryptedResponse);
         Serial.println("RemoteSigner::handleConnect() - Response sent");
+        UI::loadScreen(UI::SCREEN_SIGNER_STATUS);
         UI::showSuccessToast("Client connected");
     }
 

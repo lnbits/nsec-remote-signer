@@ -1152,30 +1152,25 @@ namespace UI {
     }
     
     void showToast(const String& message, uint32_t color, uint32_t durationMs) {
-        // Hide existing toast first
         hideToast();
         
-        // Create toast container
         toast_container = lv_obj_create(lv_scr_act());
         lv_obj_set_size(toast_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-        lv_obj_align(toast_container, LV_ALIGN_BOTTOM_MID, 0, -20);
+        lv_obj_align(toast_container, LV_ALIGN_BOTTOM_MID, 0, -80);
         lv_obj_set_style_bg_color(toast_container, lv_color_hex(color), 0);
         lv_obj_set_style_bg_opa(toast_container, 220, 0); // Semi-transparent
         lv_obj_set_style_radius(toast_container, 8, 0);
         lv_obj_set_style_pad_all(toast_container, 12, 0);
         lv_obj_set_style_border_width(toast_container, 0, 0);
         
-        // Create toast label
         toast_label = lv_label_create(toast_container);
         lv_label_set_text(toast_label, message.c_str());
         lv_obj_set_style_text_color(toast_label, lv_color_hex(Colors::TEXT), 0);
         lv_obj_set_style_text_font(toast_label, Fonts::FONT_DEFAULT, 0);
         lv_obj_center(toast_label);
         
-        // Adjust container size to fit content
         lv_obj_set_size(toast_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
         
-        // Create auto-hide timer (one-shot)
         toast_timer = lv_timer_create(toastTimerCallback, durationMs, NULL);
         lv_timer_set_repeat_count(toast_timer, 1);
         
