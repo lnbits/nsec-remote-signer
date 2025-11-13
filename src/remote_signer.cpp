@@ -423,7 +423,7 @@ namespace RemoteSigner {
         
         if (!checkClientIsAuthorized(requestingPubKey.c_str(), secret.c_str())) {
             Serial.println("RemoteSigner::handleConnect() - Client not authorized");
-            UI::showErrorToast("Client not authorized");
+            UI::showErrorToast("Client not authorised");
             return;
         }
         
@@ -520,7 +520,6 @@ namespace RemoteSigner {
         
         webSocket.sendTXT(encryptedResponse);
         Serial.println("RemoteSigner::handleSignEvent() - Event signed and response sent");
-        UI::showSuccessToast("Event signed successfully");
         
         // Hide signing modal after 250ms delay as requested
         // UI::hideSigningModalDelayed(250);
@@ -708,7 +707,7 @@ namespace RemoteSigner {
         if (secretTrimmed == secretKey) {
             Serial.println("RemoteSigner::checkClientIsAuthorized() - Secret key matches, authorizing client");
             addAuthorizedClient(clientPubKey);
-            UI::showSuccessToast("Client authorized");
+            UI::showSuccessToast("Client authorised");
             return true;
         }
         
