@@ -184,6 +184,7 @@ namespace Settings {
         lv_obj_t * current_pin_label = lv_label_create(pin_management_screen);
         lv_label_set_text(current_pin_label, "Current PIN:");
         lv_obj_align(current_pin_label, LV_ALIGN_TOP_LEFT, 20, 80);
+        lv_obj_set_style_text_color(current_pin_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
         
         pin_current_textarea = lv_textarea_create(pin_management_screen);
         lv_textarea_set_password_mode(pin_current_textarea, true);
@@ -196,6 +197,7 @@ namespace Settings {
         lv_obj_t * new_pin_label = lv_label_create(pin_management_screen);
         lv_label_set_text(new_pin_label, "New PIN:");
         lv_obj_align(new_pin_label, LV_ALIGN_TOP_LEFT, 20, 140);
+        lv_obj_set_style_text_color(new_pin_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
         
         pin_new_textarea = lv_textarea_create(pin_management_screen);
         lv_textarea_set_password_mode(pin_new_textarea, true);
@@ -208,6 +210,7 @@ namespace Settings {
         lv_obj_t * verify_pin_label = lv_label_create(pin_management_screen);
         lv_label_set_text(verify_pin_label, "Verify PIN:");
         lv_obj_align(verify_pin_label, LV_ALIGN_TOP_LEFT, 20, 200);
+        lv_obj_set_style_text_color(verify_pin_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
         
         pin_verify_textarea = lv_textarea_create(pin_management_screen);
         lv_textarea_set_password_mode(pin_verify_textarea, true);
@@ -219,18 +222,22 @@ namespace Settings {
         // Save button
         lv_obj_t * save_btn = lv_btn_create(pin_management_screen);
         lv_obj_set_size(save_btn, 100, 50);
-        lv_obj_align(save_btn, LV_ALIGN_TOP_MID, -60, 260);
+        lv_obj_align(save_btn, LV_ALIGN_TOP_MID, -55, 260);
         lv_obj_add_event_cb(save_btn, pinSaveEventHandler, LV_EVENT_CLICKED, NULL);
+        lv_obj_set_style_bg_color(save_btn, lv_color_hex(0x4CAF50), LV_PART_MAIN);
+        lv_obj_set_style_text_color(save_btn, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
         
         lv_obj_t * save_label = lv_label_create(save_btn);
         lv_label_set_text(save_label, "Save");
         lv_obj_center(save_label);
         
-        // Cancel button
-        lv_obj_t * cancel_btn = lv_btn_create(lv_scr_act());
+        // Cancel button - fix: create as child of pin_management_screen, not lv_scr_act()
+        lv_obj_t * cancel_btn = lv_btn_create(pin_management_screen);
         lv_obj_set_size(cancel_btn, 100, 50);
-        lv_obj_align(cancel_btn, LV_ALIGN_TOP_MID, 60, 260);
+        lv_obj_align(cancel_btn, LV_ALIGN_TOP_MID, 55, 260);
         lv_obj_add_event_cb(cancel_btn, pinCancelEventHandler, LV_EVENT_CLICKED, NULL);
+        lv_obj_set_style_bg_color(cancel_btn, lv_color_hex(0x9E9E9E), LV_PART_MAIN);
+        lv_obj_set_style_text_color(cancel_btn, lv_color_hex(0x000000), LV_PART_MAIN);
         
         lv_obj_t * cancel_label = lv_label_create(cancel_btn);
         lv_label_set_text(cancel_label, "Cancel");

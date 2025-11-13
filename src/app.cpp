@@ -172,7 +172,6 @@ namespace App
 
         // Check backlight timeout
         Display::checkBacklightTimeout();
-
         // Periodic health checks
         if (current_time - last_health_check >= Config::HEALTH_CHECK_INTERVAL)
         {

@@ -45,6 +45,9 @@ namespace WiFiManager {
     // Status callback
     static wifi_status_callback_t status_callback = nullptr;
     
+    // Background operations control
+    static bool background_operations_paused = false;
+    
     // Preferences instance
     static Preferences preferences;
     
@@ -217,8 +220,8 @@ namespace WiFiManager {
         // Load Bunker URL
         loadBunkerUrl();
         
-        // Try to connect to saved WiFi if not in AP mode
-        if (!ap_mode_active) {
+        // Try to connect to saved WiFi if not in AP mode and background operations aren't paused
+        if (!ap_mode_active && !isBackgroundOperationsPaused()) {
             preferences.begin("wifi-creds", true);
             String saved_ssid = preferences.getString("ssid", "");
             String saved_pass = preferences.getString("password", "");
@@ -230,6 +233,8 @@ namespace WiFiManager {
                 Serial.println(saved_ssid);
                 startConnection(saved_ssid.c_str(), saved_pass.c_str());
             }
+        } else if (isBackgroundOperationsPaused()) {
+            Serial.println("Background operations paused - skipping auto WiFi connection");
         }
     }
     
@@ -552,11 +557,13 @@ namespace WiFiManager {
                 wifi_status_timer = lv_timer_create(wifiStatusCheckerCB, 500, wifi_status_label);
             }
         } else if (code == LV_EVENT_CANCEL) {
+            pauseBackgroundOperations(false);
             UI::loadScreen((UI::screen_state_t)2); // SCREEN_WIFI
         }
     }
     
     void passwordBackEventHandler(lv_event_t* e) {
+        pauseBackgroundOperations(false);
         UI::loadScreen((UI::screen_state_t)2); // SCREEN_WIFI
     }
     
@@ -812,5 +819,14 @@ namespace WiFiManager {
     
     void updateSettingsScreenForAPMode() {
         UI::loadScreen((UI::screen_state_t)1); // SCREEN_SETTINGS
+    }
+    
+    void pauseBackgroundOperations(bool pause) {
+        background_operations_paused = pause;
+        Serial.println("WiFiManager background operations " + String(pause ? "paused" : "resumed"));
+    }
+    
+    bool isBackgroundOperationsPaused() {
+        return background_operations_paused;
     }
 }

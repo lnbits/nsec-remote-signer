@@ -89,6 +89,13 @@ namespace UI {
     // Screen state queries
     screen_state_t getCurrentScreen();
     
+    // Toast notification functions
+    void showToast(const String& message, uint32_t color = 0x607D8B, uint32_t durationMs = 2000);
+    void showErrorToast(const String& message);
+    void showWarningToast(const String& message);
+    void showSuccessToast(const String& message);
+    void hideToast();
+    
     // Constants for UI styling
     namespace Colors {
         const uint32_t PRIMARY = 0xdf2ccf;

@@ -91,6 +91,10 @@ namespace WiFiManager {
     typedef void (*wifi_status_callback_t)(bool connected, const char* status);
     void setStatusCallback(wifi_status_callback_t callback);
     
+    // Screen state management for performance optimization
+    void pauseBackgroundOperations(bool pause);
+    bool isBackgroundOperationsPaused();
+    
     // Timer management
     void createStatusTimer();
     void deleteStatusTimer();

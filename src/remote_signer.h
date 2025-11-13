@@ -23,10 +23,26 @@ namespace RemoteSigner {
     void saveConfigToPreferences();
     String getRelayUrl();
     void setRelayUrl(const String& url);
+    
+    // User keypair management (for signing events)
+    String getUserPrivateKey();
+    void setUserPrivateKey(const String& privKeyHex);
+    String getUserPublicKey();
+    
+    // Device keypair management (for NIP-46 communication, read-only)
+    String getDevicePublicKey();
+    
+    // Legacy compatibility (maps to user keypair)
     String getPrivateKey();
     void setPrivateKey(const String& privKeyHex);
     String getPublicKey();
+    
     String getBunkerUrl();
+
+    bool trySaveConfigToPreferences();
+    int getAuthorizedClientCount();
+    void removeOldestClient();
+    void removeHalfClients();
     
     // WebSocket event handling
     void websocketEvent(WStype_t type, uint8_t* payload, size_t length);
@@ -49,6 +65,12 @@ namespace RemoteSigner {
     bool promptUserForAuthorization(const String& requestingNpub);
     void addAuthorizedClient(const char* clientPubKey);
     bool checkClientIsAuthorized(const char* clientPubKey, const char* secret);
+    void clearAllAuthorizedClients();
+    int getAuthorizedClientCount();
+    
+    // Device keypair generation (internal use)
+    void generateDeviceKeypair();
+    void saveDeviceKeypairToPreferences();
     
     // Secret key management
     void refreshSecretKey();
