@@ -70,6 +70,7 @@ namespace RemoteSigner {
     static WiFiUDP ntpUDP;
     static NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000);
     static unsigned long unixTimestamp = 0;
+    static unsigned long lastTimeUpdate = 0;
     
     // Status callback
     static signer_status_callback_t status_callback = nullptr;
@@ -341,7 +342,10 @@ namespace RemoteSigner {
         }
     }
     
+
     void handleWebsocketMessage(void* arg, uint8_t* data, size_t len) {
+        long handleWsStartTime = millis();
+        Serial.println("handleWebsocketMessageStartTime: " + String(handleWsStartTime));
         String message = String((char*)data);
         
         // Check if this is a NIP-46 signing request (EVENT with kind 24133)
@@ -349,8 +353,12 @@ namespace RemoteSigner {
             Serial.println("RemoteSigner::handleWebsocketMessage() - Received signing request");
             handleSigningRequestEvent(data);
         }
+        // log time taken to process message
+        unsigned long handleWsEndTime = millis();
+        Serial.println("handleWebsocketMessageEndTime: " + String(handleWsEndTime));
+        Serial.println("RemoteSigner::handleWebsocketMessage() - Time taken to process message: " + String(handleWsEndTime - handleWsStartTime) + " ms");
     }
-    
+
     void handleSigningRequestEvent(uint8_t* data) {
         String dataStr = String((char*)data);
         Serial.println("RemoteSigner::handleSigningRequestEvent() - Processing signing request");
@@ -816,6 +824,7 @@ namespace RemoteSigner {
         Serial.println("RemoteSigner::clearAllAuthorizedClients() - All authorized clients cleared");
     }
     
+    unsigned long wsLoopCounter = 0;
     void processLoop() {
         if (!signer_initialized || WiFiManager::isBackgroundOperationsPaused()) {
             return;
@@ -823,15 +832,18 @@ namespace RemoteSigner {
         
         // Only update time and process WebSocket if WiFi is connected
         if (WiFiManager::isConnected()) {
-            // Update time
-            timeClient.update();
-            unixTimestamp = timeClient.getEpochTime();
+            // Update time only every 30 seconds
+            unsigned long now = millis();
+            if (lastTimeUpdate == 0 || now - lastTimeUpdate >= 30000) {
+                timeClient.update();
+                unixTimestamp = timeClient.getEpochTime();
+                lastTimeUpdate = now;
+            }
             
             // Process WebSocket events
             webSocket.loop();
+            // Serial.println("WS loop iteration: " + String(wsLoopCounter++));
             
-            // Send periodic ping
-            unsigned long now = millis();
             if (now - last_ws_ping > Config::WS_PING_INTERVAL) {
                 sendPing();
                 last_ws_ping = now;

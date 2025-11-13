@@ -12,7 +12,7 @@ namespace nostr
     };
  
     static const bool ENABLE_LOGGING = false;
-    static const bool ENABLE_TIMER_LOGGING = false;
+    static const bool ENABLE_TIMER_LOGGING = true;
 
     const int ECDH_CACHE_SIZE = 8;
     const unsigned long ECDH_CACHE_TTL_MS = 300000; // 5 minutes

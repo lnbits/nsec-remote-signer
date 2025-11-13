@@ -30,6 +30,7 @@
 // Memory space definitions for Nostr operations to prevent heap fragmentation
 #define EVENT_NOTE_SIZE 2000000
 #define ENCRYPTED_MESSAGE_BIN_SIZE 100000
+    
 
 // Remaining global variables that main.cpp still needs
 static unsigned long wifi_connect_start_time = 0;

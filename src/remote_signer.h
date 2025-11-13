@@ -101,12 +101,12 @@ namespace RemoteSigner {
     
     // Constants
     namespace Config {
-        const unsigned long WS_PING_INTERVAL = 5000; // 10 seconds
-        const unsigned long WS_FRAGMENT_TIMEOUT = 30000; // 30 seconds
-        const size_t WS_MAX_FRAGMENT_SIZE = 1024 * 1024; // 1MB
-        const unsigned long CONNECTION_TIMEOUT = 30000; // 30 seconds
+        const unsigned long WS_PING_INTERVAL = 5000;
+        const unsigned long WS_FRAGMENT_TIMEOUT = 30000;
+        const size_t WS_MAX_FRAGMENT_SIZE = 1024 * 1024;
+        const unsigned long CONNECTION_TIMEOUT = 30000;
         const int MAX_RECONNECT_ATTEMPTS = 10;
-        const unsigned long MIN_RECONNECT_INTERVAL = 5000; // 5 seconds
+        const unsigned long MIN_RECONNECT_INTERVAL = 5000;
     }
     
     // NIP-46 Methods
