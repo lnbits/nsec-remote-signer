@@ -323,7 +323,6 @@ namespace RemoteSigner {
                 break;
                 
             case WStype_PONG:
-                Serial.println("RemoteSigner::websocketEvent() - Received pong");
                 last_ws_message_received = millis();
                 break;
                 
@@ -913,10 +912,7 @@ namespace RemoteSigner {
     
     void sendPing() {
         if (isConnected()) {
-            Serial.println("RemoteSigner::sendPing() - Sending ping to relay");
             webSocket.sendPing();
-        } else {
-            Serial.println("RemoteSigner::sendPing() - Cannot send ping: not connected");
         }
     }
     
