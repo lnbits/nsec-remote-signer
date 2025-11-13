@@ -48,7 +48,6 @@ namespace RemoteSigner {
     
     // Forward declarations for helper functions
     void generateDeviceKeypair();
-    void saveDeviceKeypairToPreferences();
     
     // Connection state
     static bool signer_initialized = false;
@@ -139,27 +138,37 @@ namespace RemoteSigner {
             }
         }
         
-        // Load or generate device keypair (immutable once created)
-        devicePrivateKeyHex = prefs.getString("device_private_key", "");
+        devicePrivateKeyHex = prefs.getString("dev_priv_key", "");
+        Serial.println("RemoteSigner: Loaded devicePrivateKeyHex: " + devicePrivateKeyHex);
+        
         if (devicePrivateKeyHex.length() != 64) {
+            Serial.println("RemoteSigner: No valid device keypair found, generating new one");
             prefs.end();
-            // Generate device keypair on first use
+            
             generateDeviceKeypair();
-            saveDeviceKeypairToPreferences();
-            Serial.println("RemoteSigner: Generated new device keypair (first use)");
-            prefs.begin("signer", true); // Re-open as read-only
+            
+            Preferences writePrefs;
+            if (writePrefs.begin("signer", false)) {
+                Serial.println("RemoteSigner: Saving device_private_key length: " + String(devicePrivateKeyHex.length()));
+                writePrefs.putString("dev_priv_key", devicePrivateKeyHex);
+                writePrefs.putString("dev_pub_key", devicePublicKeyHex);
+                writePrefs.end();
+                Serial.println("RemoteSigner: Device keypair saved (immutable)");
+            } else {
+                Serial.println("RemoteSigner: ERROR - Failed to save device keypair");
+            }
+            
+            prefs.begin("signer", true);
         } else {
-            // Derive device public key from stored private key
             try {
                 int byteSize = 32;
                 byte privateKeyBytes[byteSize];
                 fromHex(devicePrivateKeyHex, privateKeyBytes, byteSize);
+                Serial.println("devicePrivateKeyHex loaded from prefs: " + devicePrivateKeyHex);
                 PrivateKey privKey(privateKeyBytes);
                 PublicKey pub = privKey.publicKey();
                 devicePublicKeyHex = pub.toString();
-                // remove leading 2 bytes from public key
                 devicePublicKeyHex = devicePublicKeyHex.substring(2);
-                Serial.println("RemoteSigner: Loaded existing device keypair");
             } catch (...) {
                 Serial.println("RemoteSigner: ERROR - Failed to derive device public key");
             }
@@ -169,16 +178,11 @@ namespace RemoteSigner {
         
         prefs.end();
         
-        Serial.println("RemoteSigner::loadConfigFromPreferences() - Configuration loaded");
-        Serial.println("Relay URL: " + relayUrl);
-        Serial.println("Has user private key: " + String(userPrivateKeyHex.length() > 0 ? "Yes" : "No"));
-        Serial.println("Device public key: " + devicePublicKeyHex);
     }
     
     void saveConfigToPreferences() {
         if (!trySaveConfigToPreferences()) {
-            Serial.println("RemoteSigner::saveConfigToPreferences() - Save failed, this is a critical error");
-            // Don't crash the device, but log the error
+            Serial.println("RemoteSigner::saveConfigToPreferences() - Save failed!");
         }
     }
     
@@ -367,6 +371,7 @@ namespace RemoteSigner {
         
         if (decryptedMessage.length() == 0) {
             Serial.println("RemoteSigner::handleSigningRequestEvent() - Failed to decrypt message");
+            UI::showErrorToast("Message decryption failed");
             return;
         }
         
@@ -376,6 +381,7 @@ namespace RemoteSigner {
         DeserializationError error = deserializeJson(eventDoc, decryptedMessage);
         if (error) {
             Serial.println("RemoteSigner::handleSigningRequestEvent() - JSON parsing failed: " + String(error.c_str()));
+            UI::showErrorToast("Invalid request format");
             return;
         }
         
@@ -417,6 +423,7 @@ namespace RemoteSigner {
         
         if (!checkClientIsAuthorized(requestingPubKey.c_str(), secret.c_str())) {
             Serial.println("RemoteSigner::handleConnect() - Client not authorized");
+            UI::showErrorToast("Client not authorized");
             return;
         }
         
@@ -440,6 +447,7 @@ namespace RemoteSigner {
         
         webSocket.sendTXT(encryptedResponse);
         Serial.println("RemoteSigner::handleConnect() - Response sent");
+        UI::showSuccessToast("Client connected");
     }
     
     void handleSignEvent(DynamicJsonDocument& doc, const char* requestingPubKey) {
@@ -449,6 +457,7 @@ namespace RemoteSigner {
         
         if (!isClientAuthorized(requestingPubKey)) {
             Serial.println("RemoteSigner::handleSignEvent() - Client not authorized");
+            UI::showErrorToast("Unauthorized signing request");
             return;
         }
         
@@ -459,6 +468,7 @@ namespace RemoteSigner {
         DeserializationError parseError = deserializeJson(eventParamsDoc, eventParams);
         if (parseError) {
             Serial.println("RemoteSigner::handleSignEvent() - Failed to parse event params: " + String(parseError.c_str()));
+            UI::showErrorToast("Invalid event format");
             return;
         }
         
@@ -510,6 +520,7 @@ namespace RemoteSigner {
         
         webSocket.sendTXT(encryptedResponse);
         Serial.println("RemoteSigner::handleSignEvent() - Event signed and response sent");
+        UI::showSuccessToast("Event signed successfully");
         
         // Hide signing modal after 250ms delay as requested
         // UI::hideSigningModalDelayed(250);
@@ -676,7 +687,12 @@ namespace RemoteSigner {
     }
     
     bool isClientAuthorized(const char* clientPubKey) {
-        return authorizedClients.indexOf(clientPubKey) != -1;
+        bool isAuthorised = authorizedClients.indexOf(clientPubKey) != -1;
+        if(!isAuthorised) {
+            Serial.println("RemoteSigner::isClientAuthorized() - Client not found in authorized list: " + String(clientPubKey));
+            UI::showErrorToast("Client not authorised");
+        }
+        return isAuthorised;
     }
     
     bool checkClientIsAuthorized(const char* clientPubKey, const char* secret) {
@@ -692,6 +708,7 @@ namespace RemoteSigner {
         if (secretTrimmed == secretKey) {
             Serial.println("RemoteSigner::checkClientIsAuthorized() - Secret key matches, authorizing client");
             addAuthorizedClient(clientPubKey);
+            UI::showSuccessToast("Client authorized");
             return true;
         }
         
@@ -722,7 +739,7 @@ namespace RemoteSigner {
                 authorizedClients += "|";
             }
             authorizedClients += clientPubKey;
-            
+            saveConfigToPreferences();
             Serial.println("RemoteSigner::addAuthorizedClient() - Client authorized: " + String(clientPubKey));
             Serial.println("Total authorized clients: " + String(getAuthorizedClientCount()));
         }
@@ -974,18 +991,6 @@ namespace RemoteSigner {
             Serial.println("Device public key: " + devicePublicKeyHex);
         } catch (...) {
             Serial.println("RemoteSigner: ERROR - Failed to generate device keypair");
-        }
-    }
-    
-    void saveDeviceKeypairToPreferences() {
-        Preferences prefs;
-        if (prefs.begin("signer", false)) { // Read-write
-            prefs.putString("device_private_key", devicePrivateKeyHex);
-            prefs.putString("device_public_key", devicePublicKeyHex);
-            prefs.end();
-            Serial.println("RemoteSigner::saveDeviceKeypairToPreferences() - Device keypair saved (immutable)");
-        } else {
-            Serial.println("RemoteSigner::saveDeviceKeypairToPreferences() - ERROR - Failed to save device keypair");
         }
     }
     

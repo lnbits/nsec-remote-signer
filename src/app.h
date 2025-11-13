@@ -78,7 +78,7 @@ namespace App {
      * Constants
      */
     namespace Config {
-        const String VERSION = "v1.1.0";
+        const String VERSION = "v1.1.1";
         const String BUILD_DATE = __DATE__ " " __TIME__;
         const unsigned long HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
         const unsigned long STATUS_REPORT_INTERVAL = 300000; // 5 minutes

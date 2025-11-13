@@ -52,6 +52,11 @@ namespace UI {
     static lv_obj_t* signing_modal_label = NULL;
     static lv_obj_t* signing_modal_spinner = NULL;
     
+    // Toast notification elements
+    static lv_obj_t* toast_container = NULL;
+    static lv_obj_t* toast_label = NULL;
+    static lv_timer_t* toast_timer = NULL;
+    
     void init() {
         // UI is initialized through Display::init()
         // This function can be used for additional UI setup
@@ -77,6 +82,12 @@ namespace UI {
         shop_name_keyboard = NULL;
         ap_password_keyboard = NULL;
         settings_pin_btn = NULL;
+        toast_container = NULL;
+        toast_label = NULL;
+        if (toast_timer) {
+            lv_timer_del(toast_timer);
+            toast_timer = NULL;
+        }
         settings_save_btn = NULL;
         signed_events_list = NULL;
         signing_modal = NULL;
@@ -1132,6 +1143,67 @@ namespace UI {
                 lv_timer_del(timer);
             }, delayMs, NULL);
             Serial.println("UI::hideSigningModalDelayed() - Scheduled modal hide in " + String(delayMs) + "ms");
+        }
+    }
+    
+    // Toast notification implementation
+    static void toastTimerCallback(lv_timer_t* timer) {
+        hideToast();
+    }
+    
+    void showToast(const String& message, uint32_t color, uint32_t durationMs) {
+        // Hide existing toast first
+        hideToast();
+        
+        // Create toast container
+        toast_container = lv_obj_create(lv_scr_act());
+        lv_obj_set_size(toast_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        lv_obj_align(toast_container, LV_ALIGN_BOTTOM_MID, 0, -20);
+        lv_obj_set_style_bg_color(toast_container, lv_color_hex(color), 0);
+        lv_obj_set_style_bg_opa(toast_container, 220, 0); // Semi-transparent
+        lv_obj_set_style_radius(toast_container, 8, 0);
+        lv_obj_set_style_pad_all(toast_container, 12, 0);
+        lv_obj_set_style_border_width(toast_container, 0, 0);
+        
+        // Create toast label
+        toast_label = lv_label_create(toast_container);
+        lv_label_set_text(toast_label, message.c_str());
+        lv_obj_set_style_text_color(toast_label, lv_color_hex(Colors::TEXT), 0);
+        lv_obj_set_style_text_font(toast_label, Fonts::FONT_DEFAULT, 0);
+        lv_obj_center(toast_label);
+        
+        // Adjust container size to fit content
+        lv_obj_set_size(toast_container, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+        
+        // Create auto-hide timer (one-shot)
+        toast_timer = lv_timer_create(toastTimerCallback, durationMs, NULL);
+        lv_timer_set_repeat_count(toast_timer, 1);
+        
+        Serial.println("UI::showToast() - " + message);
+    }
+    
+    void showErrorToast(const String& message) {
+        showToast(message, Colors::ERROR, 2000);
+    }
+    
+    void showWarningToast(const String& message) {
+        showToast(message, Colors::WARNING, 2000);
+    }
+    
+    void showSuccessToast(const String& message) {
+        showToast(message, Colors::SUCCESS, 2000);
+    }
+    
+    void hideToast() {
+        if (toast_container != NULL && lv_obj_is_valid(toast_container)) {
+            lv_obj_del(toast_container);
+            toast_container = NULL;
+            toast_label = NULL;
+        }
+        
+        if (toast_timer != NULL) {
+            lv_timer_del(toast_timer);
+            toast_timer = NULL;
         }
     }
 }
