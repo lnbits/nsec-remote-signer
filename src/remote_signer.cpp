@@ -122,8 +122,7 @@ namespace RemoteSigner
 
         relayUrl = prefs.getString("relay_url", "wss://relay.nostrconnect.com");
 
-        // Load user's keypair (migrate from old "private_key" if needed)
-        userPrivateKeyHex = prefs.getString("user_private_key", "");
+        userPrivateKeyHex = prefs.getString("usr_priv_key", "");
         if (userPrivateKeyHex.length() == 0)
         {
             // Migration: check for old "private_key" preference
@@ -887,9 +886,9 @@ namespace RemoteSigner
             success = false;
         }
 
-        if (prefs.putString("user_private_key", userPrivateKeyHex) == 0)
+        if (prefs.putString("usr_priv_key", userPrivateKeyHex) == 0)
         {
-            Serial.println("RemoteSigner::trySaveConfigToPreferences() - Failed to save user_private_key");
+            Serial.println("RemoteSigner::trySaveConfigToPreferences() - Failed to save usr_priv_key");
             success = false;
         }
 

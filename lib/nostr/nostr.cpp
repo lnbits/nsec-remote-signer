@@ -11,7 +11,7 @@ namespace nostr
         unsigned long timestamp;
     };
  
-    static const bool ENABLE_LOGGING = false;
+    static const bool ENABLE_LOGGING = true;
     static const bool ENABLE_TIMER_LOGGING = false;
 
     const int ECDH_CACHE_SIZE = 8;
