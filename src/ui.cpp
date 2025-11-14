@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <time.h>
 #include <vector>
+#include <functional>
 
 #include "ui.h"
 #include "settings.h"
@@ -816,6 +817,88 @@ namespace UI {
         lv_obj_center(ok_label);
         
         Serial.println(title + ": " + message);
+    }
+
+    void showConfirmationDialog(String title, String message, std::function<void(bool)> callback) {
+        // Create message overlay
+        lv_obj_t* msg_overlay = lv_obj_create(lv_scr_act());
+        lv_obj_set_size(msg_overlay, lv_pct(100), lv_pct(100));
+        lv_obj_set_style_bg_color(msg_overlay, lv_color_hex(Colors::BACKGROUND), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(msg_overlay, LV_OPA_80, LV_PART_MAIN);
+        lv_obj_set_style_border_width(msg_overlay, 0, LV_PART_MAIN);
+        
+        // Message box
+        lv_obj_t* msg_box = lv_obj_create(msg_overlay);
+        lv_obj_set_size(msg_box, 280, 320);
+        lv_obj_center(msg_box);
+        lv_obj_set_style_bg_color(msg_box, lv_color_hex(0x2c2c2c), LV_PART_MAIN);
+        lv_obj_set_style_border_color(msg_box, lv_color_hex(Colors::PRIMARY), LV_PART_MAIN);
+        lv_obj_set_style_border_width(msg_box, 2, LV_PART_MAIN);
+        lv_obj_set_style_radius(msg_box, 10, LV_PART_MAIN);
+        
+        // Title
+        lv_obj_t* title_label = lv_label_create(msg_box);
+        lv_label_set_text(title_label, title.c_str());
+        lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 20);
+        lv_obj_set_style_text_font(title_label, Fonts::FONT_DEFAULT, LV_PART_MAIN);
+        lv_obj_set_style_text_color(title_label, lv_color_hex(Colors::TEXT), 0);
+        
+        // Message
+        lv_obj_t* msg_label = lv_label_create(msg_box);
+        lv_label_set_text(msg_label, message.c_str());
+        lv_obj_align(msg_label, LV_ALIGN_CENTER, 0, -10);
+        lv_obj_set_style_text_color(msg_label, lv_color_hex(Colors::TEXT), 0);
+        lv_label_set_long_mode(msg_label, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(msg_label, 240);
+        lv_obj_set_style_text_align(msg_label, LV_TEXT_ALIGN_CENTER, 0);
+        
+        // Store callback in user data
+        std::function<void(bool)>* callbackPtr = new std::function<void(bool)>(callback);
+        
+        // Approve button
+        lv_obj_t* approve_btn = lv_btn_create(msg_box);
+        lv_obj_set_size(approve_btn, 100, 35);
+        lv_obj_align(approve_btn, LV_ALIGN_BOTTOM_LEFT, 20, -15);
+        lv_obj_set_style_bg_color(approve_btn, lv_color_hex(Colors::SUCCESS), LV_PART_MAIN);
+        lv_obj_add_event_cb(approve_btn, [](lv_event_t *e) {
+            App::resetActivityTimer();
+            lv_obj_t* overlay = (lv_obj_t*)lv_event_get_user_data(e);
+            std::function<void(bool)>* callbackPtr = (std::function<void(bool)>*)lv_obj_get_user_data(overlay);
+            if (callbackPtr) {
+                (*callbackPtr)(true);
+                delete callbackPtr;
+            }
+            lv_obj_del(overlay);
+        }, LV_EVENT_CLICKED, msg_overlay);
+        
+        lv_obj_t* approve_label = lv_label_create(approve_btn);
+        lv_label_set_text(approve_label, "Approve");
+        lv_obj_center(approve_label);
+        
+        // Deny button
+        lv_obj_t* deny_btn = lv_btn_create(msg_box);
+        lv_obj_set_size(deny_btn, 100, 35);
+        lv_obj_align(deny_btn, LV_ALIGN_BOTTOM_RIGHT, -20, -15);
+        lv_obj_set_style_bg_color(deny_btn, lv_color_hex(Colors::ERROR), LV_PART_MAIN);
+        lv_obj_add_event_cb(deny_btn, [](lv_event_t *e) {
+            App::resetActivityTimer();
+            lv_obj_t* overlay = (lv_obj_t*)lv_event_get_user_data(e);
+            std::function<void(bool)>* callbackPtr = (std::function<void(bool)>*)lv_obj_get_user_data(overlay);
+            if (callbackPtr) {
+                (*callbackPtr)(false);
+                delete callbackPtr;
+            }
+            lv_obj_del(overlay);
+        }, LV_EVENT_CLICKED, msg_overlay);
+        
+        lv_obj_t* deny_label = lv_label_create(deny_btn);
+        lv_label_set_text(deny_label, "Deny");
+        lv_obj_center(deny_label);
+        
+        // Store callback pointer in overlay user data
+        lv_obj_set_user_data(msg_overlay, callbackPtr);
+        
+        Serial.println("Confirmation Dialog - " + title + ": " + message);
     }
     
     void navigationEventHandler(lv_event_t* e) {
