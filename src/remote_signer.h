@@ -59,10 +59,12 @@ namespace RemoteSigner {
     void handleNip04Decrypt(DynamicJsonDocument& doc, const char* requestingPubKey);
     void handleNip44Encrypt(DynamicJsonDocument& doc, const char* requestingPubKey);
     void handleNip44Decrypt(DynamicJsonDocument& doc, const char* requestingPubKey);
+
+    void sendConnectResponse(const String& requestId, const String& secret, const String& requestingPubKey);
     
     // Client authorization management
     bool isClientAuthorized(const char* clientPubKey);
-    bool promptUserForAuthorization(const String& requestingNpub);
+    bool promptUserForAuthorization(const String& requestingNpub, const String& requestId, const String& secret);
     void addAuthorizedClient(const char* clientPubKey);
     bool checkClientIsAuthorized(const char* clientPubKey, const char* secret);
     void clearAllAuthorizedClients();

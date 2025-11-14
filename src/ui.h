@@ -34,6 +34,7 @@ namespace UI {
    
     // Message display
     void showMessage(String title, String message);
+    void showConfirmationDialog(String title, String message, std::function<void(bool)> callback);
     
     // UI element accessors for other modules
     lv_obj_t* getWiFiList();

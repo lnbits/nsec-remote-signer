@@ -122,8 +122,7 @@ namespace RemoteSigner
 
         relayUrl = prefs.getString("relay_url", "wss://relay.nostrconnect.com");
 
-        // Load user's keypair (migrate from old "private_key" if needed)
-        userPrivateKeyHex = prefs.getString("user_private_key", "");
+        userPrivateKeyHex = prefs.getString("usr_priv_key", "");
         if (userPrivateKeyHex.length() == 0)
         {
             // Migration: check for old "private_key" preference
@@ -349,6 +348,23 @@ namespace RemoteSigner
             last_ws_message_received = millis();
             handleWebsocketMessage(nullptr, payload, length);
             break;
+        
+        case WStype_FRAGMENT_TEXT_START:
+            // TODO: Implement fragmented text handling if ever needed
+            Serial.printf("[WSc] Fragment text start, length: %u\\n", length);
+            break;
+            
+        case WStype_FRAGMENT_BIN_START:
+            Serial.printf("[WSc] Fragment binary start, length: %u\\n", length);
+            break;
+            
+        case WStype_FRAGMENT:
+            Serial.printf("[WSc] Fragment received, total size: %u\\n", ws_fragment_received_size);
+            break;
+            
+        case WStype_FRAGMENT_FIN:
+            Serial.printf("[WSc] Fragment finished, final message: %s\\n", ws_fragmented_message.c_str());
+            break;
 
         case WStype_BIN:
             Serial.println("RemoteSigner::websocketEvent() - Received binary message");
@@ -493,32 +509,24 @@ namespace RemoteSigner
 
         Serial.println("RemoteSigner::handleConnect() - Connect request from: " + requestingPubKey);
 
-        if (!checkClientIsAuthorized(requestingPubKey.c_str(), secret.c_str()))
+        if (isClientAuthorized(requestingPubKey.c_str()))
         {
-            Serial.println("RemoteSigner::handleConnect() - Client not authorized");
-            UI::showErrorToast("Client not authorised");
+            sendConnectResponse(requestId, secret, requestingPubKey);
             return;
         }
 
-        // Send acknowledgment
-        String responseMsg = secret.length() > 0 ? "{\"id\":\"" + requestId + "\",\"result\":\"" + secret + "\"}" : "{\"id\":\"" + requestId + "\",\"result\":\"ack\"}";
+        String secretTrimmed = String(secret);
+        secretTrimmed.trim();
 
-        Serial.println("RemoteSigner::handleConnect() - Sending connect response: " + responseMsg);
+        if (secretTrimmed == secretKey)
+        {
+            Serial.println("RemoteSigner::handleConnect() - Secret key matches, authorizing client");
+            addAuthorizedClient(requestingPubKey.c_str());
+            sendConnectResponse(requestId, secret, requestingPubKey);
+            return;
+        }
 
-        // Encrypt and send response using device keypair for NIP-46 communication
-        String encryptedResponse = nostr::getEncryptedDm(
-            devicePrivateKeyHex.c_str(),
-            devicePublicKeyHex.c_str(),
-            requestingPubKey.c_str(),
-            24133,
-            unixTimestamp,
-            responseMsg,
-            "nip44");
-
-        webSocket.sendTXT(encryptedResponse);
-        Serial.println("RemoteSigner::handleConnect() - Response sent");
-        UI::loadScreen(UI::SCREEN_SIGNER_STATUS);
-        UI::showSuccessToast("Client connected");
+        promptUserForAuthorization(requestingPubKey, requestId, secret);
     }
 
     void handleSignEvent(DynamicJsonDocument &doc, const char *requestingPubKey)
@@ -795,16 +803,73 @@ namespace RemoteSigner
             return true;
         }
 
-        // Prompt user for authorization
-        return promptUserForAuthorization(clientPubKey);
+        // For now, reject clients that don't have the secret
+        // User authorization dialog is now handled in handleConnect
+        return false;
     }
 
-    bool promptUserForAuthorization(const String &requestingNpub)
+    // Structure to store pending authorization request
+    struct PendingAuthRequest {
+        String clientPubKey;
+        String requestId;
+        String secret;
+        bool isActive = false;
+    };
+    static PendingAuthRequest pendingAuth;
+
+    void sendConnectResponse(const String &requestId, const String &secret, const String &clientPubKey) {
+        // TODO: NDK doesnt support NIP46 responses with result containing the secret.
+        // So until NDK fixes this, respond with ack only.
+        // String responseMsg = secret.length() > 0 ? "{\"id\":\"" + requestId + "\",\"result\":\"" + secret + "\"}" : "{\"id\":\"" + requestId + "\",\"result\":\"ack\"}";
+        String responseMsg = "{\"id\":\"" + requestId + "\",\"result\":\"ack\"}";
+
+        Serial.println("RemoteSigner::sendConnectResponse() - Sending connect response: " + responseMsg);
+
+        String encryptedResponse = nostr::getEncryptedDm(
+            devicePrivateKeyHex.c_str(),
+            devicePublicKeyHex.c_str(),
+            clientPubKey.c_str(),
+            24133,
+            unixTimestamp,
+            responseMsg,
+            "nip44");
+
+        webSocket.sendTXT(encryptedResponse);
+        Serial.println("RemoteSigner::sendConnectResponse() - Response sent");
+        UI::loadScreen(UI::SCREEN_SIGNER_STATUS);
+        UI::showSuccessToast("Client connected");
+    }
+
+    bool promptUserForAuthorization(const String &requestingNpub, const String &requestId, const String &secret)
     {
         Serial.println("RemoteSigner::promptUserForAuthorization() - Prompting user for: " + requestingNpub);
 
-        // For now, reject all clients that dont have the correct secret
-        // TODO: Implement UI prompt for user approval
+        // Store pending request
+        pendingAuth.clientPubKey = requestingNpub;
+        pendingAuth.requestId = requestId;
+        pendingAuth.secret = secret;
+        pendingAuth.isActive = true;
+
+        // Show user confirmation dialog
+        String truncatedPubkey = requestingNpub.substring(0, 16) + "...";
+        String message = "Allow client to connect?\n\nClient: " + truncatedPubkey;
+        
+        UI::showConfirmationDialog("Client Authorization", message, [](bool approved) {
+            if (!pendingAuth.isActive) return;
+            
+            if (approved) {
+                addAuthorizedClient(pendingAuth.clientPubKey.c_str());
+                sendConnectResponse(pendingAuth.requestId, pendingAuth.secret, pendingAuth.clientPubKey);
+                Serial.println("RemoteSigner::promptUserForAuthorization() - User approved client: " + pendingAuth.clientPubKey);
+            } else {
+                UI::showErrorToast("Client authorization denied");
+                Serial.println("RemoteSigner::promptUserForAuthorization() - User denied client: " + pendingAuth.clientPubKey);
+            }
+            
+            pendingAuth.isActive = false;
+        });
+        
+        // Return false since we're handling this asynchronously
         return false;
     }
 
@@ -887,9 +952,9 @@ namespace RemoteSigner
             success = false;
         }
 
-        if (prefs.putString("user_private_key", userPrivateKeyHex) == 0)
+        if (prefs.putString("usr_priv_key", userPrivateKeyHex) == 0)
         {
-            Serial.println("RemoteSigner::trySaveConfigToPreferences() - Failed to save user_private_key");
+            Serial.println("RemoteSigner::trySaveConfigToPreferences() - Failed to save usr_priv_key");
             success = false;
         }
 
